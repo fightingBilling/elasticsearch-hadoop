@@ -147,6 +147,8 @@ public class EsOutputFormat extends OutputFormat implements org.apache.hadoop.ma
         private HeartBeat beat;
         private Progressable progressable;
 
+        private Integer sparkInstance = null;
+
         public EsRecordWriter(Configuration cfg, Progressable progressable) {
             this.cfg = cfg;
             this.progressable = progressable;
@@ -260,7 +262,17 @@ public class EsOutputFormat extends OutputFormat implements org.apache.hadoop.ma
             repository = new RestRepository(settings);
         }
 
+        public void setSparkInstance(Integer i) {
+            sparkInstance = i;
+        }
+
         private int detectCurrentInstance(Configuration conf) {
+            if (sparkInstance != null) {
+                if (log.isDebugEnabled()) {
+                    log.debug(String.format("Using Spark patition info [%d]", sparkInstance, uri));
+                }
+                return sparkInstance;
+            }
             TaskID taskID = TaskID.forName(HadoopCfgUtils.getTaskId(conf));
 
             if (taskID == null) {
@@ -323,7 +335,13 @@ public class EsOutputFormat extends OutputFormat implements org.apache.hadoop.ma
     //
     @Override
     public org.apache.hadoop.mapred.RecordWriter getRecordWriter(FileSystem ignored, JobConf job, String name, Progressable progress) {
-        return new EsRecordWriter(job, progress);
+      EsRecordWriter writer = new EsRecordWriter(job, progress);
+      // This is a special hack for Spark which sets the name as "part-[partitionnumber]" so if our jobconf asks for it
+      // we use this partition number as the shard number.
+      if (HadoopCfgUtils.useSparkPartition(job) && name.startsWith("part-") ) {
+        writer.setSparkInstance(Integer.valueOf(name.substring(5)));
+      }
+      return writer;
     }
 
     @Override

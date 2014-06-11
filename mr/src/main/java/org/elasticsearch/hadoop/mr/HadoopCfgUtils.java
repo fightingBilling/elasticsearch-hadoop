@@ -35,6 +35,10 @@ public abstract class HadoopCfgUtils {
         return "local".equals(cfg.get("mapreduce.framework.name")) || "local".equals(getJobTracker(cfg));
     }
 
+    public static boolean useSparkPartition(Configuration cfg) {
+        return "true".equals(cfg.get("es.sparkpartition"));
+    }
+
     public static String getFileSystem(Configuration cfg) {
         return get(cfg, "fs.defaultFS", "fs.default.name");
     }
