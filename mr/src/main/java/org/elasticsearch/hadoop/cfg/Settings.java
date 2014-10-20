@@ -21,6 +21,8 @@ package org.elasticsearch.hadoop.cfg;
 import java.io.InputStream;
 import java.util.Enumeration;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 
 import org.elasticsearch.hadoop.EsHadoopIllegalArgumentException;
@@ -30,10 +32,13 @@ import org.elasticsearch.hadoop.util.unit.Booleans;
 import org.elasticsearch.hadoop.util.unit.ByteSizeValue;
 import org.elasticsearch.hadoop.util.unit.TimeValue;
 
+import static org.elasticsearch.hadoop.cfg.ConfigurationOptions.*;
+import static org.elasticsearch.hadoop.cfg.InternalConfigurationOptions.*;
+
 /**
  * Holder class containing the various configuration bits used by ElasticSearch Hadoop. Handles internally the fall back to defaults when looking for undefined, optional settings.
  */
-public abstract class Settings implements InternalConfigurationOptions {
+public abstract class Settings {
 
     public String getNodes() {
         String host = getProperty(ES_HOST);
@@ -82,6 +87,10 @@ public abstract class Settings implements InternalConfigurationOptions {
 
     public boolean getBatchRefreshAfterWrite() {
         return Booleans.parseBoolean(getProperty(ES_BATCH_WRITE_REFRESH, ES_BATCH_WRITE_REFRESH_DEFAULT));
+    }
+
+    public boolean getBatchFlushManual() {
+        return Booleans.parseBoolean(getProperty(ES_BATCH_FLUSH_MANUAL, ES_BATCH_FLUSH_MANUAL_DEFAULT));
     }
 
     public long getScrollKeepAlive() {
@@ -227,7 +236,7 @@ public abstract class Settings implements InternalConfigurationOptions {
     }
 
     public FieldPresenceValidation getFieldExistanceValidation() {
-        return FieldPresenceValidation.valueOf(getProperty(ES_FIELD_READ_VALIDATE_PRESENCE, ES_FIELD_READ_VALIDATE_PRESENCE_DEFAULT).toUpperCase());
+        return FieldPresenceValidation.valueOf(getProperty(ES_FIELD_READ_VALIDATE_PRESENCE, ES_FIELD_READ_VALIDATE_PRESENCE_DEFAULT).toUpperCase(Locale.ENGLISH));
     }
 
     public TimeValue getHeartBeatLead() {
@@ -274,9 +283,14 @@ public abstract class Settings implements InternalConfigurationOptions {
         return Booleans.parseBoolean(getProperty(ES_NET_PROXY_SOCKS_USE_SYSTEM_PROPS, ES_NET_PROXY_SOCKS_USE_SYSTEM_PROPS_DEFAULT));
     }
 
-    public Settings setHosts(String hosts) {
+    public Settings setNodes(String hosts) {
         setProperty(ES_NODES, hosts);
         return this;
+    }
+
+    @Deprecated
+    public Settings setHosts(String hosts) {
+        return setNodes(hosts);
     }
 
     public Settings setPort(int port) {
@@ -311,13 +325,20 @@ public abstract class Settings implements InternalConfigurationOptions {
         return getProperty(ES_RESOURCE_WRITE, getResource());
     }
 
-    String getTargetHosts() {
-        String hosts = getProperty(INTERNAL_ES_HOSTS);
-        return (StringUtils.hasText(hosts) ? hosts : getNodes());
-    }
-
     public String getQuery() {
         return getProperty(ES_QUERY);
+    }
+
+    public boolean getReadMetadata() {
+        return Booleans.parseBoolean(getProperty(ES_READ_METADATA, ES_READ_METADATA_DEFAULT));
+    }
+
+    public String getReadMetadataField() {
+        return getProperty(ES_READ_METADATA_FIELD, ES_READ_METADATA_FIELD_DEFAULT);
+    }
+
+    public boolean getReadMetadataVersion() {
+        return Booleans.parseBoolean(getProperty(ES_READ_METADATA_VERSION, ES_READ_METADATA_VERSION_DEFAULT));
     }
 
     public abstract InputStream loadResource(String location);
@@ -350,6 +371,18 @@ public abstract class Settings implements InternalConfigurationOptions {
                 Object value = properties.get(prop);
                 setProperty((String) prop, value.toString());
             }
+        }
+
+        return this;
+    }
+
+    public Settings merge(Map<String, String> map) {
+        if (map == null || map.isEmpty()) {
+            return this;
+        }
+
+        for (Entry<String, String> entry : map.entrySet()) {
+            setProperty(entry.getKey(), entry.getValue());
         }
 
         return this;

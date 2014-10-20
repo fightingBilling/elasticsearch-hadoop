@@ -52,10 +52,12 @@ public class AbstractMRNewApiSearchTest {
     private final String query;
     private final String indexPrefix;
     private final Random random = new Random();
+    private boolean readMetadata;
 
-    public AbstractMRNewApiSearchTest(String indexPrefix, String query) {
+    public AbstractMRNewApiSearchTest(String indexPrefix, String query, boolean readMetadata) {
         this.indexPrefix = indexPrefix;
         this.query = query;
+        this.readMetadata = readMetadata;
     }
 
     @Before
@@ -67,6 +69,14 @@ public class AbstractMRNewApiSearchTest {
     public void testBasicSearch() throws Exception {
         Configuration conf = createConf();
         conf.set(ConfigurationOptions.ES_RESOURCE, indexPrefix + "mrnewapi/save");
+
+        new Job(conf).waitForCompletion(true);
+    }
+
+    @Test
+    public void testBasicWildSearch() throws Exception {
+        Configuration conf = createConf();
+        conf.set(ConfigurationOptions.ES_RESOURCE, indexPrefix + "mrnew*/save");
 
         new Job(conf).waitForCompletion(true);
     }
@@ -135,7 +145,7 @@ public class AbstractMRNewApiSearchTest {
     public void testDynamicPatternWithFormat() throws Exception {
         Assert.assertTrue(RestUtils.exists("mrnewapi/pattern-format-2936-10-06"));
         Assert.assertTrue(RestUtils.exists("mrnewapi/pattern-format-2051-10-06"));
-        Assert.assertTrue(RestUtils.exists("mrnewapi/pattern-format-2345-10-06"));
+        Assert.assertTrue(RestUtils.exists("mrnewapi/pattern-format-2945-10-06"));
     }
 
 
@@ -146,13 +156,16 @@ public class AbstractMRNewApiSearchTest {
         job.setInputFormatClass(EsInputFormat.class);
         job.setOutputFormatClass(PrintStreamOutputFormat.class);
         job.setOutputKeyClass(Text.class);
+
         boolean type = random.nextBoolean();
         Class<?> mapType = (type ? MapWritable.class : LinkedMapWritable.class);
+
         job.setOutputValueClass(mapType);
         conf.set(ConfigurationOptions.ES_QUERY, query);
 
-        QueryTestParams.provisionQueries(conf);
+        conf.set(ConfigurationOptions.ES_READ_METADATA, String.valueOf(readMetadata));
 
+        QueryTestParams.provisionQueries(conf);
         job.setNumReduceTasks(0);
         //PrintStreamOutputFormat.stream(conf, Stream.OUT);
         return job.getConfiguration();

@@ -25,6 +25,7 @@ import java.util.Properties;
 import org.elasticsearch.hadoop.QueryTestParams;
 import org.elasticsearch.hadoop.Stream;
 import org.elasticsearch.hadoop.cascading.EsTap;
+import org.elasticsearch.hadoop.cfg.ConfigurationOptions;
 import org.elasticsearch.hadoop.mr.RestUtils;
 import org.elasticsearch.hadoop.util.TestSettings;
 import org.junit.Assert;
@@ -58,9 +59,11 @@ public class AbstractCascadingLocalSearchTest {
     }
 
     private String query;
+    private boolean readMetadata;
 
-    public AbstractCascadingLocalSearchTest(String query) {
+    public AbstractCascadingLocalSearchTest(String query, boolean readMetadata) {
         this.query = query;
+        this.readMetadata = readMetadata;
     }
 
     private OutputStream OUT = Stream.NULL.stream();
@@ -140,13 +143,14 @@ public class AbstractCascadingLocalSearchTest {
     @Test
     public void testDynamicPatternFormat() throws Exception {
         Assert.assertTrue(RestUtils.exists("cascading-local/pattern-format-2001-10-06"));
-        Assert.assertTrue(RestUtils.exists("cascading-local/pattern-format-2500-10-06"));
-        Assert.assertTrue(RestUtils.exists("cascading-local/pattern-format-2990-10-06"));
+        Assert.assertTrue(RestUtils.exists("cascading-local/pattern-format-2198-10-06"));
+        Assert.assertTrue(RestUtils.exists("cascading-local/pattern-format-2900-10-06"));
     }
 
     private Properties cfg() {
         Properties props = new TestSettings().getProperties();
-        //props.put(ConfigurationOptions.ES_QUERY, query);
+        props.put(ConfigurationOptions.ES_QUERY, query);
+        props.put(ConfigurationOptions.ES_READ_METADATA, readMetadata);
         return props;
     }
 

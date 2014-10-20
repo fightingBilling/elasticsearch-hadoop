@@ -59,9 +59,11 @@ public class AbstractCascadingLocalJsonSearchTest {
 
     private final String indexPrefix = "json-";
     private final String query;
+    private boolean readMetadata;
 
-    public AbstractCascadingLocalJsonSearchTest(String query) {
+    public AbstractCascadingLocalJsonSearchTest(String query, boolean readMetadata) {
         this.query = query;
+        this.readMetadata = readMetadata;
     }
 
     private OutputStream OUT = Stream.NULL.stream();
@@ -118,7 +120,7 @@ public class AbstractCascadingLocalJsonSearchTest {
     @Test
     public void testDynamicPatternWithFormat() throws Exception {
         Assert.assertTrue(RestUtils.exists(indexPrefix + "cascading-local/pattern-format-2001-10-06"));
-        Assert.assertTrue(RestUtils.exists(indexPrefix + "cascading-local/pattern-format-2501-10-06"));
+        Assert.assertTrue(RestUtils.exists(indexPrefix + "cascading-local/pattern-format-2198-10-06"));
         Assert.assertTrue(RestUtils.exists(indexPrefix + "cascading-local/pattern-format-2890-10-06"));
     }
 
@@ -129,6 +131,7 @@ public class AbstractCascadingLocalJsonSearchTest {
     private Properties cfg() {
         Properties props = new TestSettings().getProperties();
         props.put(ConfigurationOptions.ES_QUERY, query);
+        props.put(ConfigurationOptions.ES_READ_METADATA, readMetadata);
         return props;
     }
 }

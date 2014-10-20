@@ -22,6 +22,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -31,8 +32,9 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 import org.codehaus.jackson.JsonParser;
+import org.codehaus.jackson.map.DeserializationConfig;
 import org.codehaus.jackson.map.ObjectMapper;
-import org.codehaus.jackson.map.ObjectReader;
+import org.codehaus.jackson.map.SerializationConfig;
 import org.elasticsearch.hadoop.cfg.ConfigurationOptions;
 import org.elasticsearch.hadoop.cfg.Settings;
 import org.elasticsearch.hadoop.rest.Request.Method;
@@ -41,11 +43,12 @@ import org.elasticsearch.hadoop.rest.stats.StatsAware;
 import org.elasticsearch.hadoop.serialization.ParsingUtils;
 import org.elasticsearch.hadoop.serialization.dto.Node;
 import org.elasticsearch.hadoop.serialization.json.JacksonJsonParser;
+import org.elasticsearch.hadoop.serialization.json.JsonFactory;
+import org.elasticsearch.hadoop.serialization.json.ObjectReader;
 import org.elasticsearch.hadoop.util.ByteSequence;
 import org.elasticsearch.hadoop.util.BytesArray;
 import org.elasticsearch.hadoop.util.IOUtils;
 import org.elasticsearch.hadoop.util.ObjectUtils;
-import org.elasticsearch.hadoop.util.SettingsUtils;
 import org.elasticsearch.hadoop.util.StringUtils;
 import org.elasticsearch.hadoop.util.TrackingBytesArray;
 import org.elasticsearch.hadoop.util.unit.TimeValue;
@@ -55,10 +58,17 @@ import static org.elasticsearch.hadoop.rest.Request.Method.*;
 public class RestClient implements Closeable, StatsAware {
 
     private NetworkClient network;
-    private ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper;
     private TimeValue scrollKeepAlive;
     private boolean indexReadMissingAsEmpty;
     private final HttpRetryPolicy retryPolicy;
+
+    {
+        mapper = new ObjectMapper();
+        mapper.configure(DeserializationConfig.Feature.USE_ANNOTATIONS, false);
+        mapper.configure(SerializationConfig.Feature.USE_ANNOTATIONS, false);
+    }
+
 
     private final Stats stats = new Stats();
 
@@ -67,7 +77,7 @@ public class RestClient implements Closeable, StatsAware {
     }
 
     public RestClient(Settings settings) {
-        network = new NetworkClient(settings, SettingsUtils.nodes(settings));
+        network = new NetworkClient(settings);
 
         scrollKeepAlive = TimeValue.timeValueMillis(settings.getScrollKeepAlive());
         indexReadMissingAsEmpty = settings.getIndexReadMissingAsEmpty();
@@ -127,7 +137,7 @@ public class RestClient implements Closeable, StatsAware {
         return (T) (string != null ? map.get(string) : map);
     }
 
-    public void bulk(Resource resource, TrackingBytesArray data) {
+    public BitSet bulk(Resource resource, TrackingBytesArray data) {
         Retry retry = retryPolicy.init();
         int httpStatus = 0;
 
@@ -139,8 +149,8 @@ public class RestClient implements Closeable, StatsAware {
             Response response = execute(PUT, resource.bulk(), data);
             long spent = network.transportStats().netTotalTime - start;
 
-            stats.bulkWrites++;
-            stats.docsWritten += data.entries();
+            stats.bulkTotal++;
+            stats.docsSent += data.entries();
             stats.bulkTotalTime += spent;
             // bytes will be counted by the transport layer
 
@@ -155,12 +165,14 @@ public class RestClient implements Closeable, StatsAware {
 
             httpStatus = (retryFailedEntries(response.body(), data) ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.OK);
         } while (data.length() > 0 && retry.retry(httpStatus));
+
+        return data.leftoversPosition();
     }
 
     @SuppressWarnings("rawtypes")
     private boolean retryFailedEntries(InputStream content, TrackingBytesArray data) {
         try {
-            ObjectReader r = mapper.reader(Map.class);
+            ObjectReader r = JsonFactory.objectReader(mapper, Map.class);
             JsonParser parser = mapper.getJsonFactory().createJsonParser(content);
             try {
                 if (ParsingUtils.seek("items", new JacksonJsonParser(parser)) == null) {
@@ -210,6 +222,11 @@ public class RestClient implements Closeable, StatsAware {
         return header + "[" + error + "]";
     }
 
+    private String prettify(String error, ByteSequence body) {
+        String message = ErrorUtils.extractJsonParse(error, body);
+        return (message != null ? error + "; fragment[" + message + "]" : error);
+    }
+
     public void refresh(Resource resource) {
         execute(POST, resource.refresh());
     }
@@ -218,11 +235,13 @@ public class RestClient implements Closeable, StatsAware {
         execute(DELETE, index);
     }
 
-    public List<List<Map<String, Object>>> targetShards(Resource resource) {
+    public List<List<Map<String, Object>>> targetShards(String index) {
         List<List<Map<String, Object>>> shardsJson = null;
 
+        // https://github.com/elasticsearch/elasticsearch/issues/2726
+        String target = index + "/_search_shards";
         if (indexReadMissingAsEmpty) {
-            Response res = execute(GET, resource.targetShards(), false);
+            Response res = execute(GET, target, false);
             if (res.status() == HttpStatus.NOT_FOUND) {
                 shardsJson = Collections.emptyList();
             }
@@ -231,7 +250,7 @@ public class RestClient implements Closeable, StatsAware {
             }
         }
         else {
-            shardsJson = get(resource.targetShards(), "shards");
+            shardsJson = get(target, "shards");
         }
 
         return shardsJson;
@@ -289,6 +308,7 @@ public class RestClient implements Closeable, StatsAware {
             // try to parse the answer
             try {
                 msg = parseContent(response.body(), "error");
+                msg = prettify(msg, request.body());
             } catch (Exception ex) {
                 // can't parse message, move on
             }
@@ -321,7 +341,7 @@ public class RestClient implements Closeable, StatsAware {
             // use post instead of get to avoid some weird encoding issues (caused by the long URL)
             InputStream is = execute(POST, "_search/scroll?scroll=" + scrollKeepAlive.toString(),
                     new BytesArray(scrollId.getBytes(StringUtils.UTF_8))).body();
-            stats.scrollReads++;
+            stats.scrollTotal++;
             return is;
         } finally {
             stats.scrollTotalTime += network.transportStats().netTotalTime - start;
@@ -346,6 +366,10 @@ public class RestClient implements Closeable, StatsAware {
     public String esVersion() {
         Map<String, String> version = get("", "version");
         return version.get("number");
+    }
+
+    public Map<String, Object> aliases(String index) {
+        return get(index, null);
     }
 
     public boolean health(String index, HEALTH health, TimeValue timeout) {

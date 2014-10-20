@@ -36,6 +36,7 @@ import org.elasticsearch.hadoop.serialization.dto.mapping.MappingUtils;
 import org.elasticsearch.hadoop.util.StringUtils;
 
 import cascading.flow.FlowProcess;
+import cascading.tap.SinkMode;
 import cascading.tap.Tap;
 import cascading.tuple.Fields;
 import cascading.tuple.TupleEntryCollector;
@@ -55,9 +56,9 @@ class EsLocalTap extends Tap<Properties, ScrollQuery, Object> {
     private final Properties tapProperties;
 
     public EsLocalTap(String host, int port, String resource, String query, Fields fields, Properties props) {
+        super(new EsLocalScheme(host, port, resource, query, fields, props), SinkMode.UPDATE);
         this.target = resource;
         this.tapProperties = props;
-        setScheme(new EsLocalScheme(host, port, resource, query, fields, props));
     }
 
     @Override
@@ -82,7 +83,8 @@ class EsLocalTap extends Tap<Properties, ScrollQuery, Object> {
                 MappingUtils.validateMapping(fields, mapping, validation, log);
             }
 
-            input = QueryBuilder.query(settings).fields(StringUtils.concatenate(fields,  ",")).build(client, new ScrollReader(new JdkValueReader(), mapping));
+            input = QueryBuilder.query(settings).fields(StringUtils.concatenateAndUriEncode(fields,  ",")).build(client,
+                          new ScrollReader(new JdkValueReader(), mapping, settings.getReadMetadata(), settings.getReadMetadataField()));
         }
         return new TupleEntrySchemeIterator<Properties, ScrollQuery>(flowProcess, getScheme(), input, getIdentifier());
     }

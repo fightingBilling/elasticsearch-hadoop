@@ -30,6 +30,18 @@ import static org.junit.Assert.*;
 public class ResourceTest {
 
     @Test
+    public void testJustIndex() throws Exception {
+        Resource res = createResource("foo/_all");
+        assertEquals("foo/_all", res.indexAndType());
+    }
+
+    @Test
+    public void testJustType() throws Exception {
+        Resource res = createResource("_all/foo");
+        assertEquals("_all/foo", res.indexAndType());
+    }
+
+    @Test
     public void testIndexAndType() throws Exception {
         Resource res = createResource("foo/bar");
         assertEquals("foo/bar", res.indexAndType());
@@ -61,8 +73,8 @@ public class ResourceTest {
 
     @Test
     public void testURiEscaping() throws Exception {
-        assertEquals("http://localhost:9200/index/type%7Cfoo?q=foo%7Cbar:bar%7Cfoo", StringUtils.escapeUri("http://localhost:9200/index/type|foo?q=foo|bar:bar|foo"));
-        assertEquals("foo%7Cbar", StringUtils.escapeUri("foo|bar"));
-        System.out.println(StringUtils.escapeUri("foo|bar,abc,xyz|rpt"));
+        assertEquals("http://localhost:9200/index/type%7Cfoo?q=foo%7Cbar:bar%7Cfoo", StringUtils.encodeUri("http://localhost:9200/index/type|foo?q=foo|bar:bar|foo"));
+        assertEquals("foo%7Cbar", StringUtils.encodeUri("foo|bar"));
+        System.out.println(StringUtils.encodeUri("foo|bar,abc,xyz|rpt"));
     }
 }

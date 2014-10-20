@@ -22,19 +22,23 @@ import java.io.InputStream;
 import java.util.List;
 
 import org.elasticsearch.hadoop.serialization.json.JacksonJsonParser;
+import org.elasticsearch.hadoop.util.FastByteArrayInputStream;
+import org.elasticsearch.hadoop.util.IOUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
 
+import static org.hamcrest.CoreMatchers.*;
+
 public class JsonValuePathTest {
 
     private Parser parser;
 
     @Before
-    public void before() {
-        InputStream in = getClass().getResourceAsStream("parser-test-nested.json");
+    public void before() throws Exception {
+        InputStream in = new FastByteArrayInputStream(IOUtils.asBytes(getClass().getResourceAsStream("parser-test-nested.json")));
         parser = new JacksonJsonParser(in);
     }
 
@@ -48,7 +52,7 @@ public class JsonValuePathTest {
         List<String> vals = ParsingUtils.values(parser, "firstName", "foo", "age");
         assertEquals(3, vals.size());
         assertEquals("John", vals.get(0));
-        assertNull(vals.get(1));
+        assertSame(ParsingUtils.NOT_FOUND, vals.get(1));
         assertEquals("25", vals.get(2));
     }
 
@@ -57,8 +61,22 @@ public class JsonValuePathTest {
         List<String> vals = ParsingUtils.values(parser, "address.state", "address.foo", "address.building.floors", "address.building.bar");
         assertEquals(4, vals.size());
         assertEquals("NY", vals.get(0));
-        assertNull(vals.get(1));
+        assertSame(ParsingUtils.NOT_FOUND, vals.get(1));
         assertEquals("10", vals.get(2));
-        assertNull(vals.get(3));
+        assertSame(ParsingUtils.NOT_FOUND, vals.get(3));
+    }
+
+    @Test
+    public void testRichObject() throws Exception {
+        List<String> vals = ParsingUtils.values(parser, "address");
+        assertEquals(1, vals.size());
+        assertThat(vals.get(0), containsString("floors"));
+    }
+
+    @Test
+    public void testRichObjectNested() throws Exception {
+        List<String> vals = ParsingUtils.values(parser, "address.building");
+        assertEquals(1, vals.size());
+        assertThat(vals.get(0), containsString("floors"));
     }
 }

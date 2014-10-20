@@ -18,19 +18,15 @@
  */
 package org.elasticsearch.hadoop.rest;
 
-import java.io.IOException;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.elasticsearch.hadoop.EsHadoopIllegalArgumentException;
-import org.elasticsearch.hadoop.EsHadoopIllegalStateException;
 import org.elasticsearch.hadoop.cfg.ConfigurationOptions;
+import org.elasticsearch.hadoop.cfg.HadoopSettingsManager;
 import org.elasticsearch.hadoop.cfg.InternalConfigurationOptions;
 import org.elasticsearch.hadoop.cfg.Settings;
-import org.elasticsearch.hadoop.cfg.SettingsManager;
 import org.elasticsearch.hadoop.serialization.BytesConverter;
 import org.elasticsearch.hadoop.serialization.builder.ContentBuilder;
 import org.elasticsearch.hadoop.serialization.builder.NoOpValueWriter;
@@ -54,7 +50,7 @@ public abstract class InitializationUtils {
         }
     }
 
-    public static boolean discoverNodesIfNeeded(Settings settings, Log log) throws IOException {
+    public static boolean discoverNodesIfNeeded(Settings settings, Log log) {
         if (settings.getNodesDiscovery()) {
             RestClient bootstrap = new RestClient(settings);
 
@@ -63,13 +59,7 @@ public abstract class InitializationUtils {
                 log.debug(String.format("Nodes discovery enabled - found %s", discoveredNodes));
             }
 
-            // clean-up and merge
-            Set<String> nodes = new LinkedHashSet<String>();
-            nodes.addAll(SettingsUtils.nodes(settings));
-            nodes.addAll(discoveredNodes);
-
-            // save result
-            settings.setProperty(InternalConfigurationOptions.INTERNAL_ES_HOSTS, StringUtils.concatenate(nodes, ","));
+            SettingsUtils.addDiscoveredNodes(settings, discoveredNodes);
             bootstrap.close();
 
             return true;
@@ -78,7 +68,7 @@ public abstract class InitializationUtils {
         return false;
     }
 
-    public static String discoverEsVersion(Settings settings, Log log) throws IOException {
+    public static String discoverEsVersion(Settings settings, Log log) {
         String version = settings.getProperty(InternalConfigurationOptions.INTERNAL_ES_VERSION);
         if (StringUtils.hasText(version)) {
             if (log.isDebugEnabled()) {
@@ -112,14 +102,10 @@ public abstract class InitializationUtils {
             if (client == null) {
                 client = new RestRepository(settings);
             }
-            try {
             if (!client.indexExists(false)) {
                 client.close();
                 throw new EsHadoopIllegalArgumentException(String.format("Target index [%s] does not exist and auto-creation is disabled [setting '%s' is '%s']",
                         settings.getResourceWrite(), ConfigurationOptions.ES_INDEX_AUTO_CREATE, settings.getIndexAutoCreate()));
-            }
-            } catch (IOException ex) {
-                throw new EsHadoopIllegalStateException("Cannot check index existance", ex);
             }
         }
     }
@@ -139,8 +125,8 @@ public abstract class InitializationUtils {
         return false;
     }
 
-    public static <T> void saveSchemaIfNeeded(Object conf, ValueWriter<T> schemaWriter, T schema, Log log) throws IOException {
-        Settings settings = SettingsManager.loadFrom(conf);
+    public static <T> void saveSchemaIfNeeded(Object conf, ValueWriter<T> schemaWriter, T schema, Log log) {
+        Settings settings = HadoopSettingsManager.loadFrom(conf);
 
         if (settings.getIndexAutoCreate()) {
             RestRepository client = new RestRepository(settings);

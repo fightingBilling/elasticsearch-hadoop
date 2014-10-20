@@ -39,6 +39,7 @@ import org.elasticsearch.hadoop.util.FieldAlias;
 import org.elasticsearch.hadoop.util.SettingsUtils;
 import org.elasticsearch.hadoop.util.StringUtils;
 import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
 import org.joda.time.format.ISODateTimeFormat;
 
 
@@ -64,6 +65,10 @@ class PigUtils {
         return (pig11Available ? Pig11OrHigherConverter.convertFromES(esDate) : PigUpTo10Converter.convertFromES(esDate));
     }
 
+    static Object convertDateFromES(Long esDate) {
+        return (pig11Available ? Pig11OrHigherConverter.convertFromES(esDate) : PigUpTo10Converter.convertFromES(esDate));
+    }
+
     private static abstract class PigUpTo10Converter {
         static String convertToES(Object pigDate) {
             if (pigDate instanceof Number) {
@@ -80,6 +85,10 @@ class PigUtils {
         static Object convertFromES(String esDate) {
             return DatatypeConverter.parseDateTime(esDate).getTimeInMillis();
         }
+
+        static Object convertFromES(Long esDate) {
+            return esDate;
+        }
     }
 
     private static abstract class Pig11OrHigherConverter {
@@ -92,6 +101,10 @@ class PigUtils {
         static Object convertFromES(String esDate) {
             return ISODateTimeFormat.dateOptionalTimeParser().parseDateTime(esDate);
         }
+
+        static Object convertFromES(Long esDate) {
+            return new DateTime(esDate, DateTimeZone.UTC);
+        }
     }
 
     static FieldAlias alias(Settings settings) {
@@ -102,7 +115,7 @@ class PigUtils {
         List<String> fields = new ArrayList<String>();
         addField(schema, fields, alias(new PropertiesSettings(props)), null);
 
-        return StringUtils.concatenate(fields.toArray(new String[fields.size()]), ",");
+        return StringUtils.concatenate(fields, ",");
     }
 
     private static void addField(Schema schema, List<String> fields, FieldAlias fa, String currentNode) {
@@ -139,7 +152,7 @@ class PigUtils {
             addField(field, fields, alias, "");
         }
 
-        return StringUtils.concatenate(fields.toArray(new String[fields.size()]), ",");
+        return StringUtils.concatenateAndUriEncode(fields, ",");
     }
 
     private static void addField(RequiredField field, List<String> fields, FieldAlias fa, String currentNode) {

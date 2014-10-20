@@ -44,8 +44,13 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 
+import static org.junit.Assert.*;
+
+import static org.hamcrest.Matchers.*;
+
 @RunWith(Parameterized.class)
 public class AbstractMROldApiSearchTest {
+
 
     @Parameters
     public static Collection<Object[]> queries() {
@@ -55,10 +60,12 @@ public class AbstractMROldApiSearchTest {
     private final String query;
     private final String indexPrefix;
     private final Random random = new Random();
+    private boolean readMetadata;
 
-    public AbstractMROldApiSearchTest(String indexPrefix, String query) {
+    public AbstractMROldApiSearchTest(String indexPrefix, String query, boolean readMetadata) {
         this.query = query;
         this.indexPrefix = indexPrefix;
+        this.readMetadata = readMetadata;
     }
 
     @Before
@@ -70,6 +77,15 @@ public class AbstractMROldApiSearchTest {
     public void testBasicSearch() throws Exception {
         JobConf conf = createJobConf();
         conf.set(ConfigurationOptions.ES_RESOURCE, indexPrefix + "mroldapi/save");
+
+        JobClient.runJob(conf);
+    }
+
+
+    @Test
+    public void testBasicSearchWithWildCard() throws Exception {
+        JobConf conf = createJobConf();
+        conf.set(ConfigurationOptions.ES_RESOURCE, indexPrefix + "mrold*/save");
 
         JobClient.runJob(conf);
     }
@@ -138,7 +154,15 @@ public class AbstractMROldApiSearchTest {
     public void testDynamicPatternWithFormat() throws Exception {
         Assert.assertTrue(RestUtils.exists("mroldapi/pattern-format-2936-10-06"));
         Assert.assertTrue(RestUtils.exists("mroldapi/pattern-format-2051-10-06"));
-        Assert.assertTrue(RestUtils.exists("mroldapi/pattern-format-2345-10-06"));
+        Assert.assertTrue(RestUtils.exists("mroldapi/pattern-format-2945-10-06"));
+    }
+
+    @Test
+    public void testUpsertOnlyParamScriptWithArrayOnArrayField() throws Exception {
+        String target = "mroldapi/createwitharrayupsert/1";
+        Assert.assertTrue(RestUtils.exists(target));
+        String result = RestUtils.get(target);
+        assertThat(result, not(containsString("ArrayWritable@")));
     }
 
     //@Test
@@ -163,6 +187,9 @@ public class AbstractMROldApiSearchTest {
         HadoopCfgUtils.setGenericOptions(conf);
         conf.set(ConfigurationOptions.ES_QUERY, query);
         conf.setNumReduceTasks(0);
+
+        conf.set(ConfigurationOptions.ES_READ_METADATA, String.valueOf(readMetadata));
+        conf.set(ConfigurationOptions.ES_READ_METADATA_VERSION, String.valueOf(true));
 
         QueryTestParams.provisionQueries(conf);
         FileInputFormat.setInputPaths(conf, new Path(TestUtils.sampleArtistsDat()));

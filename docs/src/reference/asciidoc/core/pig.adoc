@@ -134,16 +134,23 @@ A = LOAD 'src/test/resources/artists.dat' USING PigStorage()
 -- transform data
 B = FOREACH A GENERATE name, TOTUPLE(url, picture) AS links;
 -- save the result to Elasticsearch
-STORE B INTO 'radio/artists'<1> USING org.elasticsearch.pig.EsStorage(<2>);
+STORE B INTO 'radio/artists'<1> USING org.elasticsearch.hadoop.pig.EsStorage(<2>);
 ----
 
 <1> {es} resource (index and type) associated with the given storage
 <2> additional configuration parameters can be passed here - in this case the defaults are used
 
+For cases where the id (or other metadata fields like +ttl+ or +timestamp+) of the document needs to be specified, one can do so by setting the appropriate <<cfg-mapping, mapping>> namely +es.mapping.id+. Following the previous example, to indicate to {es} to use the field +id+ as the document id, update the +Storage+ configuration:
+
+[source,sql]
+----
+STORE B INTO 'radio/artists USING org.elasticsearch.hadoop.pig.EsStorage('es.mapping.id=id'...);
+----
+
 [float]
 ==== Writing existing JSON to {es}
 
-When the job output data is already in JSON, {eh} allows direct indexing _without_ applying any transformation; the data is taken as is and sent directly to {es}. In such cases, one needs to indicate the json input by setting
+When the job input data is already in JSON, {eh} allows direct indexing _without_ applying any transformation; the data is taken as is and sent directly to {es}. In such cases, one needs to indicate the json input by setting
 the `es.input.json` parameter. As such, in this case {eh} expects to receive a tuple with a single field (representing the JSON document); the library will recognize common 'textual' types such as `chararray` or `bytearray` otherwise it just calls `toString` to get a hold of the JSON content.
 
 .Pig types to use for JSON representation
@@ -163,7 +170,7 @@ IMPORTANT: Make sure the data is properly encoded, in `UTF-8`. The field content
 ----
 A = LOAD '/resources/artists.json' USING PigStorage() AS (json:chararray<1>);"
 STORE B INTO 'radio/artists' 
-    USING org.elasticsearch.pig.EsStorage('es.input.json=true'<2>...);
+    USING org.elasticsearch.hadoop.pig.EsStorage('es.input.json=true'<2>...);
 ----
 
 <1> Load the (JSON) data as a single field (`json`)
@@ -178,11 +185,11 @@ One can index the data to a different resource, depending on the 'row' being rea
 ----
 A = LOAD 'src/test/resources/media.dat' USING PigStorage()
             AS (name:chararray, type:chararray <1>, year: chararray);
-STORE B INTO 'my-collection/{type}'<2> USING org.elasticsearch.pig.EsStorage();
+STORE B INTO 'my-collection/{type}'<2> USING org.elasticsearch.hadoop.pig.EsStorage();
 ----
 
 <1> Tuple field used by the resource pattern. Any of the declared fields can be used.
-<2> Resource pattern using field `type`
+<2> Resource pattern using field `type` - note the pattern can be used _anywhere_ in the resource (on the index, on the type, in both places, etc...)
 
 
 For each tuple about to be written, {eh} will extract the `type` field and use its value to determine the target resource.
@@ -206,7 +213,7 @@ the table declaration can be as follows:
 ----
 A = LOAD '/resources/media.json' USING PigStorage() AS (json:chararray<1>);"
 STORE B INTO 'my-collection/{media_type}'<2>
-    USING org.elasticsearch.pig.EsStorage('es.input.json=true');
+    USING org.elasticsearch.hadoop.pig.EsStorage('es.input.json=true');
 ----
 
 <1> Schema declaration for the tuple. Since JSON input is used, the schema is simply a holder to the raw data
@@ -221,14 +228,14 @@ As you would expect, loading the data is straight forward:
 ----
 -- execute Elasticsearch query and load data into Pig
 A = LOAD 'radio/artists'<1> 
-    USING org.elasticsearch.pig.EsStorage('es.query=?me*'<2>);
+    USING org.elasticsearch.hadoop.pig.EsStorage('es.query=?me*'<2>);
 DUMP A;
 ----
 
 <1> {es} resource
 <2> search query to execute
 
-IMPORTANT: Due to a https://issues.apache.org/jira/browse/PIG-3646[bug] in Pig, +LoadFunc+tions are not aware of any schema associated with them. This means +EsStorage+ is forced to fully the documents 
+IMPORTANT: Due to a https://issues.apache.org/jira/browse/PIG-3646[bug] in Pig, +LoadFunctions+ are not aware of any schema associated with them. This means +EsStorage+ is forced to fully the documents 
 from Elasticsearch before passing the data to Pig for projection. In practice, this has little impact as long as a document top-level fields are used; for nested fields consider extracting the values
 yourself in Pig.
 

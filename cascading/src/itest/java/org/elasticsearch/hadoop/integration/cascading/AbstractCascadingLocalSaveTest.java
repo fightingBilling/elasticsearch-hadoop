@@ -29,6 +29,10 @@ import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 
+import cascading.cascade.CascadeConnector;
+import cascading.flow.Flow;
+import cascading.flow.FlowConnector;
+import cascading.flow.FlowDef;
 import cascading.flow.local.LocalFlowConnector;
 import cascading.operation.Identity;
 import cascading.pipe.Each;
@@ -173,7 +177,7 @@ public class AbstractCascadingLocalSaveTest {
         properties.put(ConfigurationOptions.ES_INDEX_AUTO_CREATE, "yes");
         properties.put(ConfigurationOptions.ES_UPDATE_RETRY_ON_CONFLICT, "3");
         properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT, "counter = 3");
-        properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_LANG, "mvel");
+        properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_LANG, "groovy");
 
 
         Tap in = sourceTap();
@@ -192,7 +196,7 @@ public class AbstractCascadingLocalSaveTest {
         properties.put(ConfigurationOptions.ES_INDEX_AUTO_CREATE, "yes");
         properties.put(ConfigurationOptions.ES_UPDATE_RETRY_ON_CONFLICT, "3");
         properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT, "counter = param1; anothercounter = param2");
-        properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_LANG, "mvel");
+        properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_LANG, "groovy");
         properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_PARAMS, " param1:<1>,   param2:id ");
 
         Tap in = sourceTap();
@@ -211,7 +215,7 @@ public class AbstractCascadingLocalSaveTest {
         properties.put(ConfigurationOptions.ES_UPDATE_RETRY_ON_CONFLICT, "3");
 
         properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT, "counter = param1; anothercounter = param2");
-        properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_LANG, "mvel");
+        properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_LANG, "groovy");
         properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_PARAMS_JSON, "{ \"param1\":1, \"param2\":2}");
 
         Tap in = sourceTap();
@@ -259,7 +263,7 @@ public class AbstractCascadingLocalSaveTest {
         properties.put(ConfigurationOptions.ES_MAPPING_ID, "id");
 
         properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT, "counter += param1; anothercounter += param2");
-        properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_LANG, "mvel");
+        properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_LANG, "groovy");
         properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_PARAMS, " param1:<1>,   param2:id ");
 
         Tap in = sourceTap();
@@ -277,7 +281,7 @@ public class AbstractCascadingLocalSaveTest {
         properties.put(ConfigurationOptions.ES_MAPPING_ID, "id");
 
         properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT, "counter += param1; anothercounter += param2");
-        properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_LANG, "mvel");
+        properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_LANG, "groovy");
         properties.put(ConfigurationOptions.ES_UPDATE_SCRIPT_PARAMS_JSON, "{ \"param1\":1, \"param2\":2}");
 
         Tap in = sourceTap();
@@ -286,6 +290,21 @@ public class AbstractCascadingLocalSaveTest {
 
         Pipe pipe = new Pipe("copy");
         build(properties, in, out, pipe);
+    }
+
+    @Test
+    public void testCascadeConnector() {
+        Pipe copy = new Pipe("copy");
+        Properties cfg = new TestSettings().getProperties();
+
+        FlowDef flow = new FlowDef().addSource(copy, sourceTap()).addTailSink(copy,
+                new EsTap("cascading-local/cascade-connector"));
+
+        FlowConnector connector = new LocalFlowConnector(cfg);
+        Flow[] flows = new Flow[] { connector.connect(flow) };
+
+        CascadeConnector cascadeConnector = new CascadeConnector(cfg);
+        cascadeConnector.connect(flows).complete();
     }
 
     private Tap sourceTap() {

@@ -48,9 +48,10 @@ class HeartBeat {
         this.progressable = progressable;
         this.rate = new TimeValue(tv.getMillis() - delay.getMillis(), TimeUnit.MILLISECONDS);
         this.log = log;
-        TaskID taskID = TaskID.forName(HadoopCfgUtils.getTaskId(cfg));
 
         String taskId;
+        TaskID taskID = HadoopCfgUtils.getTaskID(cfg);
+
         if (taskID == null) {
             log.warn("Cannot determine task id...");
             taskId = "<unknown>";

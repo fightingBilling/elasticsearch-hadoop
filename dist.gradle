@@ -48,7 +48,7 @@ def customizePom(pom, gradleProject) {
         }
 		
 		groupId = "org.elasticsearch"
-		artifactId = project.name
+		artifactId = project.archivesBaseName
 	}
 }
 

@@ -21,6 +21,7 @@ package org.elasticsearch.hadoop.rest;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.BitSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,12 +29,13 @@ import java.util.Map;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.elasticsearch.hadoop.EsHadoopException;
+import org.elasticsearch.hadoop.EsHadoopIllegalStateException;
 import org.elasticsearch.hadoop.cfg.Settings;
 import org.elasticsearch.hadoop.rest.stats.Stats;
 import org.elasticsearch.hadoop.rest.stats.StatsAware;
 import org.elasticsearch.hadoop.serialization.ScrollReader;
-import org.elasticsearch.hadoop.serialization.bulk.BulkCommands;
 import org.elasticsearch.hadoop.serialization.bulk.BulkCommand;
+import org.elasticsearch.hadoop.serialization.bulk.BulkCommands;
 import org.elasticsearch.hadoop.serialization.dto.Node;
 import org.elasticsearch.hadoop.serialization.dto.Shard;
 import org.elasticsearch.hadoop.serialization.dto.mapping.Field;
@@ -50,17 +52,22 @@ import org.elasticsearch.hadoop.util.unit.TimeValue;
 public class RestRepository implements Closeable, StatsAware {
 
     private static Log log = LogFactory.getLog(RestRepository.class);
+    private static final BitSet EMPTY = new BitSet();
 
     // serialization artifacts
     private int bufferEntriesThreshold;
 
+    // raw data
     private final BytesArray ba = new BytesArray(0);
+    // tracking array (backed by the BA above)
     private final TrackingBytesArray data = new TrackingBytesArray(ba);
     private int dataEntries = 0;
     private boolean requiresRefreshAfterBulk = false;
     private boolean executedBulkWrite = false;
+    // wrapper around existing BA (for cases where the serialization already occurred)
     private BytesRef trivialBytesRef;
     private boolean writeInitialized = false;
+    private boolean autoFlush = true;
 
     // indicates whether there were writes errorrs or not
     // flag indicating whether to flush the batch at close-time or not
@@ -95,6 +102,7 @@ public class RestRepository implements Closeable, StatsAware {
         if (!writeInitialized) {
             writeInitialized = true;
 
+            autoFlush = !settings.getBatchFlushManual();
             ba.bytes(new byte[settings.getBatchSizeInBytes()], 0);
             trivialBytesRef = new BytesRef();
             bufferEntriesThreshold = settings.getBatchSizeInEntries();
@@ -123,7 +131,7 @@ public class RestRepository implements Closeable, StatsAware {
      *
      * @param object object to add to the index
      */
-    public void writeToIndex(Object object) throws IOException {
+    public void writeToIndex(Object object) {
         Assert.notNull(object, "no object data given");
 
         lazyInitWriting();
@@ -149,7 +157,13 @@ public class RestRepository implements Closeable, StatsAware {
     private void doWriteToIndex(BytesRef payload) {
         // check space first
         if (payload.length() > ba.available()) {
-            sendBatch();
+            if (autoFlush) {
+                flush();
+            }
+            else {
+                throw new EsHadoopIllegalStateException(
+                        String.format("Auto-flush disabled and bulk buffer full; disable manual flush or increase capacity [current size %s]; bailing out", ba.capacity()));
+            }
         }
 
         data.copyFrom(payload);
@@ -157,25 +171,59 @@ public class RestRepository implements Closeable, StatsAware {
 
         dataEntries++;
         if (bufferEntriesThreshold > 0 && dataEntries >= bufferEntriesThreshold) {
-            sendBatch();
+            if (autoFlush) {
+                flush();
+            }
+            else {
+                // handle the corner case of manual flush that occurs only after the buffer is completely full (think size of 1)
+                if (dataEntries > bufferEntriesThreshold) {
+                    throw new EsHadoopIllegalStateException(
+                            String.format(
+                                    "Auto-flush disabled and maximum number of entries surpassed; disable manual flush or increase capacity [current size %s]; bailing out",
+                                    bufferEntriesThreshold));
+                }
+            }
         }
     }
 
-    private void sendBatch() {
+    public BitSet tryFlush() {
         if (log.isDebugEnabled()) {
             log.debug(String.format("Sending batch of [%d] bytes/[%s] entries", data.length(), dataEntries));
         }
 
+        BitSet bulkResult = EMPTY;
+
         try {
-            client.bulk(resourceW, data);
+            // double check data - it might be a false flush (called on clean-up)
+            if (data.length() > 0) {
+                bulkResult = client.bulk(resourceW, data);
+            }
         } catch (EsHadoopException ex) {
             hadWriteErrors = true;
             throw ex;
         }
 
+        executedBulkWrite = true;
+
+        // discard the data buffer, only if it was properly sent/processed
+        //if (bulkResult.isEmpty()) {
+        // always discard data since there's no code path that uses the in flight data
+        discard();
+        //}
+
+        return bulkResult;
+    }
+
+    public void discard() {
         data.reset();
         dataEntries = 0;
-        executedBulkWrite = true;
+    }
+
+    public void flush() {
+        BitSet bulk = tryFlush();
+        if (!bulk.isEmpty()) {
+            throw new EsHadoopException(String.format("Could not write all entries [%s/%s] (maybe ES was overloaded?). Bailing out...", bulk.cardinality(), bulk.size()));
+        }
     }
 
     @Override
@@ -184,14 +232,12 @@ public class RestRepository implements Closeable, StatsAware {
             log.debug("Closing repository and connection to Elasticsearch ...");
         }
 
-        if (data.length() > 0) {
-            if (!hadWriteErrors) {
-                sendBatch();
-            }
-            else {
-                if (log.isDebugEnabled()) {
-                    log.debug("Dirty close; ignoring last existing write batch...");
-                }
+        if (!hadWriteErrors) {
+            flush();
+        }
+        else {
+            if (log.isDebugEnabled()) {
+                log.debug("Dirty close; ignoring last existing write batch...");
             }
         }
 
@@ -218,8 +264,9 @@ public class RestRepository implements Closeable, StatsAware {
     public Map<Shard, Node> getReadTargetShards() {
         Map<String, Node> nodes = client.getNodes();
 
-        List<List<Map<String, Object>>> info = client.targetShards(resourceR);
-        Map<Shard, Node> shards = new LinkedHashMap<Shard, Node>(info.size());
+        Map<Shard, Node> shards = new LinkedHashMap<Shard, Node>();
+
+        List<List<Map<String, Object>>> info = client.targetShards(resourceR.index());
 
         for (List<Map<String, Object>> shardGroup : info) {
             // find the first started shard in each group (round-robin)
@@ -227,7 +274,7 @@ public class RestRepository implements Closeable, StatsAware {
                 Shard shard = new Shard(shardData);
                 if (shard.getState().isStarted()) {
                     Node node = nodes.get(shard.getNode());
-                    Assert.notNull(node, "Cannot find node with id [" + shard.getNode() + "]");
+                    Assert.notNull(node, String.format("Cannot find node with id [%s] (is HTTP enabled?) from shard [%s] in nodes [%s]; layout [%s]", shard.getNode(), shard, shardGroup, info));
                     shards.put(shard, node);
                     break;
                 }
@@ -236,10 +283,10 @@ public class RestRepository implements Closeable, StatsAware {
         return shards;
     }
 
-    public Map<Shard, Node> getWriteTargetPrimaryShards() throws IOException {
+    public Map<Shard, Node> getWriteTargetPrimaryShards() {
         Map<String, Node> nodes = client.getNodes();
 
-        List<List<Map<String, Object>>> info = client.targetShards(resourceW);
+        List<List<Map<String, Object>>> info = client.targetShards(resourceW.index());
         Map<Shard, Node> shards = new LinkedHashMap<Shard, Node>(info.size());
 
         for (List<Map<String, Object>> shardGroup : info) {
@@ -248,7 +295,7 @@ public class RestRepository implements Closeable, StatsAware {
                 Shard shard = new Shard(shardData);
                 if (shard.isPrimary()) {
                     Node node = nodes.get(shard.getNode());
-                    Assert.notNull(node, "Cannot find node with id [" + shard.getNode() + "]");
+                    Assert.notNull(node, String.format("Cannot find node with id [%s] (is HTTP enabled?) from shard [%s] in nodes [%s]; layout [%s]", shard.getNode(), shard, shardGroup, info));
                     shards.put(shard, node);
                     break;
                 }
@@ -257,7 +304,7 @@ public class RestRepository implements Closeable, StatsAware {
         return shards;
     }
 
-    public Field getMapping() throws IOException {
+    public Field getMapping() {
         return Field.parseField((Map<String, Object>) client.getMapping(resourceR.mapping()));
     }
 
@@ -272,20 +319,32 @@ public class RestRepository implements Closeable, StatsAware {
         }
     }
 
-    public boolean indexExists(boolean read) throws IOException {
+    public boolean indexExists(boolean read) {
         Resource res = (read ? resourceR : resourceW);
-        return client.exists(res.indexAndType());
+        // cheap hit
+        boolean exists = client.exists(res.indexAndType());
+        // could be a _all or a pattern which is valid for read
+        // try again by asking the mapping - could be expensive
+        if (!exists && read) {
+            try {
+                // make sure the mapping is null since the index might exist but the type might be missing
+                exists = !client.getMapping(res.mapping()).isEmpty();
+            } catch (EsHadoopInvalidRequest ex) {
+                exists = false;
+            }
+        }
+        return exists;
     }
 
-    public void putMapping(BytesArray mapping) throws IOException {
+    public void putMapping(BytesArray mapping) {
         client.putMapping(resourceW.index(), resourceW.mapping(), mapping.bytes());
     }
 
-    public boolean touch() throws IOException {
+    public boolean touch() {
         return client.touch(resourceW.index());
     }
 
-    public boolean waitForYellow() throws IOException {
+    public boolean waitForYellow() {
         return client.health(resourceW.index(), RestClient.HEALTH.YELLOW, TimeValue.timeValueSeconds(10));
     }
 

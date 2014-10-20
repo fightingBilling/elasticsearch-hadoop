@@ -16,29 +16,29 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.elasticsearch.hadoop.serialization;
+package org.elasticsearch.hadoop.rest;
 
-import java.util.Map;
+import java.util.Arrays;
 
-import org.elasticsearch.hadoop.cfg.Settings;
-import org.elasticsearch.hadoop.serialization.field.ConstantFieldExtractor;
+import org.elasticsearch.hadoop.util.StringUtils;
+import org.junit.Test;
 
-public class MapFieldExtractor extends ConstantFieldExtractor {
+import static org.junit.Assert.*;
 
-    @SuppressWarnings("rawtypes")
-    @Override
-    protected String extractField(Object target) {
-        if (target instanceof Map) {
-            Map map = (Map) target;
-            Object w = map.get(getFieldName());
-            // since keys are likely primitives, just do a toString
-            return (w != null ? w.toString() : null);
-        }
-        return null;
+import static org.hamcrest.CoreMatchers.*;
+
+public class EscapeTest {
+
+    @Test
+    public void testSingleAmpersandEscape() {
+        String uri = StringUtils.encodeQuery("&c");
+        assertThat(uri, is("%26c"));
     }
 
-    @Override
-    public void setSettings(Settings settings) {
-        super.setSettings(settings);
+    @Test
+    public void testMultiAmpersandEscapeSimple() {
+        String uri = StringUtils.concatenateAndUriEncode(Arrays.asList("&a", "$b", "#c", "!d", "/e", ":f"), ",");
+        assertThat(uri, is("%26a,%24b,%23c,%21d,%2Fe,%3Af"));
     }
+
 }

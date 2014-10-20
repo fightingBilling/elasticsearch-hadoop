@@ -25,23 +25,33 @@ public class ConstantFieldExtractor implements FieldExtractor, SettingsAware {
 
     public static final String PROPERTY = "org.elasticsearch.hadoop.serialization.ConstantFieldExtractor.property";
     private String fieldName;
-    private String value;
+    private Object value;
 
     @Override
-    public final String field(Object target) {
+    public final Object field(Object target) {
         return (value != null ? value : extractField(target));
     }
 
-    protected String extractField(Object target) {
-        return null;
+    protected Object extractField(Object target) {
+        return NOT_FOUND;
     }
 
     @Override
     public void setSettings(Settings settings) {
         fieldName = property(settings);
         if (fieldName.startsWith("<") && fieldName.endsWith(">")) {
-            this.value = fieldName.substring(1, fieldName.length() - 1);
+            value = initValue(fieldName.substring(1, fieldName.length() - 1));
         }
+        if (value == null) {
+            processField(settings, fieldName);
+        }
+    }
+
+    protected void processField(Settings settings, String fieldName) {
+    }
+
+    protected Object initValue(String value) {
+        return value;
     }
 
     protected String property(Settings settings) {
@@ -51,5 +61,10 @@ public class ConstantFieldExtractor implements FieldExtractor, SettingsAware {
 
     protected String getFieldName() {
         return fieldName;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("%s for field [%s]", getClass().getSimpleName(), fieldName);
     }
 }

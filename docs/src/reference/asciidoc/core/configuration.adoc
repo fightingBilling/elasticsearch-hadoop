@@ -121,12 +121,13 @@ integration for more details about using JSON directly.
 
 `es.write.operation` (default index)::
 The write operation {eh} should peform - can be any of:
-`index` (default);; new data is added while existing data (based on its id) is updated.
+`index` (default);; new data is added while existing data (based on its id) is replaced (reindexed).
 `create`;; adds new data - if the data already exists (based on its id), an exception is thrown.
 `update`;; updates existing data (based on its id). If no data is found, an exception is thrown.
 `upsert`;; known as _merge_ or insert if the data does not exist, updates if the data exists (based on its id).
 
 [float]
+[[cfg-mapping]]
 ==== Mapping
 
 `es.mapping.id` (default none)::
@@ -156,7 +157,22 @@ es.mapping.id = uuid
 # specifying a parent with id '123'
 es.mapping.parent = \<123>
 ----
+
 [float]
+==== Metadata
+
++es.read.metadata+ (default false)::
+Whether to include the document metadata (such as id and version) in the results or not (default).
+
++es.read.metadata.field+ (default _metadata)::
+The field under which the metadata information is placed. When +es.read.metadata+ is set to true, the information is returned as a +Map+ under the specified field.
+
++es.read.metadata.version+ (default false)::
+Whether to include the document version in the returned metadata. Applicable only if +es.read.metadata+ is enabled.
+
+
+[float]
+[[cfg-update]]
 ==== Update settings
 
 One using the `update` or `upsert` operation, additional settings (that mirror the http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/docs-update.html[update] API) are available:
@@ -260,6 +276,7 @@ The lead to task timeout before {eh} informs Hadoop the task is still running to
 NOTE: {eh} allows proxy settings to be applied only to its connection using the setting above. Take extra care when there is already a JVM-wide proxy setting (typically through system properties) to avoid unexpected behavior.
 
 [float]
+[[configuration-serialization]]
 ==== Serialization
 
 `es.batch.size.bytes` (default 1mb)::

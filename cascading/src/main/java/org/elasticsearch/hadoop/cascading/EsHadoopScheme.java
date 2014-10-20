@@ -32,7 +32,7 @@ import org.apache.hadoop.mapred.OutputCollector;
 import org.apache.hadoop.mapred.RecordReader;
 import org.elasticsearch.hadoop.cfg.InternalConfigurationOptions;
 import org.elasticsearch.hadoop.cfg.Settings;
-import org.elasticsearch.hadoop.cfg.SettingsManager;
+import org.elasticsearch.hadoop.cfg.HadoopSettingsManager;
 import org.elasticsearch.hadoop.mr.EsInputFormat;
 import org.elasticsearch.hadoop.mr.EsOutputFormat;
 import org.elasticsearch.hadoop.mr.HadoopCfgUtils;
@@ -106,7 +106,7 @@ class EsHadoopScheme extends Scheme<JobConf, RecordReader, OutputCollector, Obje
         super.sinkPrepare(flowProcess, sinkCall);
 
         Object[] context = new Object[1];
-        // the tuple wil be fixed, so we can just use a collection/index
+        // the tuple is fixed, so we can just use a collection/index
         Settings settings = loadSettings(flowProcess.getConfigCopy(), false);
         context[0] = CascadingUtils.fieldToAlias(settings, getSinkFields());
         sinkCall.setContext(context);
@@ -126,7 +126,7 @@ class EsHadoopScheme extends Scheme<JobConf, RecordReader, OutputCollector, Obje
 
         Collection<String> fields = CascadingUtils.fieldToAlias(set, getSourceFields());
         // load only the necessary fields
-        conf.set(InternalConfigurationOptions.INTERNAL_ES_TARGET_FIELDS, StringUtils.concatenate(fields, ","));
+        conf.set(InternalConfigurationOptions.INTERNAL_ES_TARGET_FIELDS, StringUtils.concatenateAndUriEncode(fields, ","));
 
         if (log.isTraceEnabled()) {
             log.trace("Initialized (source) configuration " + HadoopCfgUtils.asProperties(conf));
@@ -157,7 +157,7 @@ class EsHadoopScheme extends Scheme<JobConf, RecordReader, OutputCollector, Obje
     }
 
     private Settings loadSettings(Object source, boolean read) {
-        return CascadingUtils.init(SettingsManager.loadFrom(source).merge(props), nodes, port, index, query, read);
+        return CascadingUtils.init(HadoopSettingsManager.loadFrom(source).merge(props), nodes, port, index, query, read);
     }
 
     @SuppressWarnings("unchecked")

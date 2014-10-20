@@ -1,6 +1,6 @@
-# Elasticsearch Hadoop [![Build Status](https://travis-ci.org/elasticsearch/elasticsearch-hadoop.png)](https://travis-ci.org/elasticsearch/elasticsearch-hadoop)
+# Elasticsearch Hadoop [![Build Status](https://travis-ci.org/elasticsearch/elasticsearch-hadoop.png)](https://travis-ci.org/elasticsearch/elasticsearch-hadoop) [![Build Status](http://build-us-1.elasticsearch.org/buildStatus/icon?job=es-hadoop-quick)](http://build-us-1.elasticsearch.org/view/Hadoop/job/es-hadoop-quick/)
 Elasticsearch real-time search and analytics natively integrated with Hadoop.  
-Supports [Map/Reduce](#mapreduce), [Cascading](#cascading), [Apache Hive](#apache-hive) and [Apache Pig](#apache-pig).
+Supports [Map/Reduce](#mapreduce), [Cascading](#cascading), [Apache Hive](#apache-hive), [Apache Pig](#apache-pig), [Apache Spark](#apache-spark) and [Apache Storm](#apache-storm).
 
 See  [project page](http://www.elasticsearch.org/overview/hadoop/) and [documentation](http://www.elasticsearch.org/guide/en/elasticsearch/hadoop/current/index.html) for detailed information.
 
@@ -11,16 +11,27 @@ For a certain library, see the dedicated [chapter](http://www.elasticsearch.org/
 
 ## Installation
 
-### Release (currently `2.0.0`)
+### Stable Release (currently `2.0.2`)
 Available through any Maven-compatible tool:
 
 ```xml
 <dependency>
   <groupId>org.elasticsearch</groupId>
   <artifactId>elasticsearch-hadoop</artifactId>
-  <version>2.0.0</version>
+  <version>2.0.1</version>
 </dependency>
 ```
+### Beta Release (currently `2.1.0.Beta2`)
+Available through any Maven-compatible tool:
+
+```xml
+<dependency>
+  <groupId>org.elasticsearch</groupId>
+  <artifactId>elasticsearch-hadoop</artifactId>
+  <version>2.1.0.Beta1</version>
+</dependency>
+```
+
 or as a stand-alone [ZIP](http://www.elasticsearch.org/overview/hadoop/download/).
 
 ### Development Snapshot
@@ -144,9 +155,11 @@ CREATE EXTERNAL TABLE artists (
 STORED BY 'org.elasticsearch.hadoop.hive.EsStorageHandler'
 TBLPROPERTIES('es.resource' = 'radio/artists', 'es.query' = '?q=me*');
 ```
-The fields defined in the table are mapped to the JSON when communicating with Elasticsearch. Notice the use of `TBLPROPERTIES` to define the location, that is the query used for reading from this table:
-```
-SELECT FROM artists;
+The fields defined in the table are mapped to the JSON when communicating with Elasticsearch. Notice the use of `TBLPROPERTIES` to define the location, that is the query used for reading from this table.
+
+Once defined, the table can be used just like any other:
+```SQL
+SELECT * FROM artists;
 ```
 
 ### Writing
@@ -183,17 +196,79 @@ and use `$ESSTORAGE` for storage definition.
 
 ### Reading
 To read data from ES, use `EsStorage` and specify the query through the `LOAD` function:
-```
+```SQL
 A = LOAD 'radio/artists' USING org.elasticsearch.hadoop.pig.EsStorage('es.query=?q=me*');
 DUMP A;
 ```
 
 ### Writing
 Use the same `Storage` to write data to Elasticsearch:
-```
+```SQL
 A = LOAD 'src/artists.dat' USING PigStorage() AS (id:long, name, url:chararray, picture: chararray);
 B = FOREACH A GENERATE name, TOTUPLE(url, picture) AS links;
 STORE B INTO 'radio/artists' USING org.elasticsearch.hadoop.pig.EsStorage();
+```
+## [Apache Spark][]
+ES-Hadoop provides native (Java and Scala) integration with Spark: for reading a dedicated `RDD` and for writing, methods that work on any `RDD`.
+
+### Scala
+
+### Reading
+To read data from ES, create a dedicated `RDD` and specify the query as an argument:
+
+```scala
+import org.elasticsearch.spark._
+
+..
+val conf = ...
+val sc = new SparkContext(conf)
+sc.esRDD("radio/artists", "?me*")
+```
+### Writing
+Import the `org.elasticsearch.spark._` package to gain `savetoEs` methods on your `RDD`s:
+```scala
+import org.elasticsearch.spark._        
+
+val conf = ...
+val sc = new SparkContext(conf)         
+
+val numbers = Map("one" -> 1, "two" -> 2, "three" -> 3)
+val airports = Map("OTP" -> "Otopeni", "SFO" -> "San Fran")
+
+sc.makeRDD(Seq(numbers, airports)).saveToEs("spark/docs")
+```
+
+### Java
+
+In a Java environment, use the `org.elasticsearch.spark.java.api` package, in particular the `JavaEsSpark` class.
+
+### Reading
+To read data from ES, create a dedicated `RDD` and specify the query as an argument.
+
+```java
+import org.apache.spark.api.java.JavaSparkContext;   
+import org.elasticsearch.spark.java.api.JavaEsSpark; 
+
+SparkConf conf = ...
+JavaSparkContext jsc = new JavaSparkContext(conf);   
+
+JavaPairRDD<String, Map<String, Object>> esRDD = JavaEsSpark.esRDD(jsc, "radio/artists");
+```
+
+### Writing
+
+Use `JavaEsSpark` to index any `RDD` to Elasticsearch:
+```java
+import org.elasticsearch.spark.java.api.JavaEsSpark; 
+
+SparkConf conf = ...
+JavaSparkContext jsc = new JavaSparkContext(conf); 
+
+Map<String, ?> numbers = ImmutableMap.of("one", 1, "two", 2);     
+Map<String, ?> airports = ImmutableMap.of("OTP", "Otopeni", "SFO", "San Fran");
+
+JavaRDD<Map<String, ?>> javaRDD = jsc.parallelize(ImmutableList.of(doc1, doc2)); 
+JavaEsSpark.saveToEs(javaRDD, "spark/docs");
 ```
 
 ## [Cascading][]
@@ -210,6 +285,30 @@ new LocalFlowConnector().connect(in, out, new Pipe("read-from-ES")).complete();
 Tap in = Lfs(new TextDelimited(new Fields("id", "name", "url", "picture")), "src/test/resources/artists.dat");
 Tap out = new EsTap("radio/artists", new Fields("name", "url", "picture"));
 new HadoopFlowConnector().connect(in, out, new Pipe("write-to-ES")).complete();
+```
+
+## [Apache Storm][]
+ES-Hadoop provides native integration with Spark: for reading a dedicated `Spout` and for writing a specialized `Bolt`
+
+### Reading
+To read data from ES, use `EsSpout`:
+```java
+import org.elasticsearch.storm.EsSpout; 
+
+TopologyBuilder builder = new TopologyBuilder();
+builder.setSpout("es-spout", new EsSpout("storm/docs", "?q=me*"), 5);
+builder.setBolt("bolt", new PrinterBolt()).shuffleGrouping("es-spout");
+```
+
+### Writing
+To index data to ES, use `EsBolt`:
+
+```java
+import org.elasticsearch.storm.EsBolt; 
+
+TopologyBuilder builder = new TopologyBuilder();
+builder.setSpout("spout", new RandomSentenceSpout(), 10);
+builder.setBolt("es-bolt", new EsBolt("storm/docs"), 5).shuffleGrouping("spout");
 ```
 
 ## Building the source
@@ -245,6 +344,8 @@ under the License.
 [Map/Reduce]: http://hadoop.apache.org/docs/r1.2.1/mapred_tutorial.html
 [Apache Pig]: http://pig.apache.org
 [Apache Hive]: http://hive.apache.org
+[Apache Spark]: http://spark.apache.org
+[Apache Storm]: http://storm.apache.org
 [HiveQL]: http://cwiki.apache.org/confluence/display/Hive/LanguageManual
 [external table]: http://cwiki.apache.org/Hive/external-tables.html
 [Apache License]: http://www.apache.org/licenses/LICENSE-2.0

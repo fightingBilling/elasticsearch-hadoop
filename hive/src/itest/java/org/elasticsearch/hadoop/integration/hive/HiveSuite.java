@@ -37,8 +37,9 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Suite;
 
 @RunWith(Suite.class)
-@Suite.SuiteClasses({ AbstractHiveSaveTest.class, AbstractHiveSaveJsonTest.class, AbstractHiveSearchTest.class, AbstractHiveSearchJsonTest.class })
+@Suite.SuiteClasses({ AbstractHiveSaveTest.class, AbstractHiveSaveJsonTest.class, AbstractHiveSearchTest.class, AbstractHiveSearchJsonTest.class, AbstractHiveExtraTests.class})
 //@Suite.SuiteClasses({ AbstractHiveSaveJsonTest.class, AbstractHiveSearchJsonTest.class })
+//@Suite.SuiteClasses({ AbstractHiveSaveTest.class })
 public class HiveSuite {
 
     static HiveInstance server;
@@ -98,6 +99,7 @@ public class HiveSuite {
     @ClassRule
     public static ExternalResource resource = new ChainedExternalResource(new LocalEs(), hive);
 
+    @SuppressWarnings("deprecation")
     @BeforeClass
     public static void setup() throws Exception {
         if (!isLocal) {

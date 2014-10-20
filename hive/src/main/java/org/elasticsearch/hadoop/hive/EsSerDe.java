@@ -42,8 +42,8 @@ import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
+import org.elasticsearch.hadoop.cfg.HadoopSettingsManager;
 import org.elasticsearch.hadoop.cfg.Settings;
-import org.elasticsearch.hadoop.cfg.SettingsManager;
 import org.elasticsearch.hadoop.rest.InitializationUtils;
 import org.elasticsearch.hadoop.serialization.bulk.BulkCommand;
 import org.elasticsearch.hadoop.serialization.bulk.BulkCommands;
@@ -73,6 +73,7 @@ public class EsSerDe implements SerDe {
     private boolean writeInitialized = false;
     private boolean readInitialized = false;
     private boolean IS_ES_10 = true;
+    private boolean trace = false;
 
 
     @Override
@@ -80,11 +81,13 @@ public class EsSerDe implements SerDe {
         inspector = HiveUtils.structObjectInspector(tbl);
         structTypeInfo = HiveUtils.typeInfo(inspector);
         cfg = conf;
-        settings = (cfg != null ? SettingsManager.loadFrom(cfg).merge(tbl) : SettingsManager.loadFrom(tbl));
+        settings = (cfg != null ? HadoopSettingsManager.loadFrom(cfg).merge(tbl) : HadoopSettingsManager.loadFrom(tbl));
         alias = HiveUtils.alias(settings);
 
         HiveUtils.fixHive13InvalidComments(settings, tbl);
         this.tableProperties = tbl;
+
+        trace = log.isTraceEnabled();
     }
 
     @Override
@@ -97,7 +100,13 @@ public class EsSerDe implements SerDe {
         if (blob == null || blob instanceof NullWritable) {
             return null;
         }
-        return hiveFromWritable(structTypeInfo, blob, alias, IS_ES_10);
+        Object des = hiveFromWritable(structTypeInfo, blob, alias, IS_ES_10);
+
+        if (trace) {
+            log.trace(String.format("Deserialized [%s] to [%s]", blob, des));
+        }
+
+        return des;
     }
 
     @Override
@@ -135,7 +144,7 @@ public class EsSerDe implements SerDe {
             return;
         }
         writeInitialized = true;
-        Settings settings = SettingsManager.loadFrom(tableProperties);
+        Settings settings = HadoopSettingsManager.loadFrom(tableProperties);
 
         InitializationUtils.setValueWriterIfNotSet(settings, HiveValueWriter.class, log);
         InitializationUtils.setFieldExtractorIfNotSet(settings, HiveFieldExtractor.class, log);

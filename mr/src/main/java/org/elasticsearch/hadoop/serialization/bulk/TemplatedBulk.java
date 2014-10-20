@@ -20,38 +20,14 @@ package org.elasticsearch.hadoop.serialization.bulk;
 
 import java.util.Collection;
 
-import org.elasticsearch.hadoop.EsHadoopIllegalArgumentException;
 import org.elasticsearch.hadoop.serialization.builder.ContentBuilder;
 import org.elasticsearch.hadoop.serialization.builder.ValueWriter;
-import org.elasticsearch.hadoop.serialization.field.FieldExtractor;
+import org.elasticsearch.hadoop.serialization.bulk.AbstractBulkFactory.FieldWriter;
 import org.elasticsearch.hadoop.util.BytesArray;
 import org.elasticsearch.hadoop.util.BytesRef;
 import org.elasticsearch.hadoop.util.FastByteArrayOutputStream;
 
 class TemplatedBulk implements BulkCommand {
-
-    static class FieldWriter {
-        final FieldExtractor extractor;
-        final BytesArray pad;
-
-        FieldWriter(FieldExtractor extractor) {
-            this(extractor, new BytesArray(64));
-        }
-
-        FieldWriter(FieldExtractor extractor, BytesArray pad) {
-            this.extractor = extractor;
-            this.pad = pad;
-        }
-
-        BytesArray write(Object object) {
-            String value = extractor.field(object);
-            if (value == null) {
-                throw new EsHadoopIllegalArgumentException(String.format("[%s] cannot extract value from object [%s]", extractor, object));
-            }
-            pad.bytes(value);
-            return pad;
-        }
-    }
 
     private final Collection<Object> beforeObject;
     private final Collection<Object> afterObject;
@@ -59,7 +35,7 @@ class TemplatedBulk implements BulkCommand {
     private BytesArray scratchPad = new BytesArray(1024);
     private BytesRef ref = new BytesRef();
 
-    private final ValueWriter<?> valueWriter;
+    private final ValueWriter valueWriter;
 
     TemplatedBulk(Collection<Object> beforeObject, Collection<Object> afterObject, ValueWriter<?> valueWriter) {
         this.beforeObject = beforeObject;

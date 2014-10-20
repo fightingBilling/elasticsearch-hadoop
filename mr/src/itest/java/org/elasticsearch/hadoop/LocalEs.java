@@ -63,13 +63,13 @@ public class LocalEs extends ExternalResource {
 
         if (master == null) {
             System.out.println("Starting Elasticsearch Master...");
-            master = new EsEmbeddedServer(CLUSTER_NAME, ES_DATA_PATH, DATA_PORTS, TRANSPORT_PORTS);
+            master = new EsEmbeddedServer(CLUSTER_NAME, ES_DATA_PATH, DATA_PORTS, TRANSPORT_PORTS, USE_SLAVE);
             master.start();
         }
 
         if (USE_SLAVE && slave == null) {
             System.out.println("Starting Elasticsearch Slave...");
-            slave = new EsEmbeddedServer(CLUSTER_NAME, ES_DATA_PATH, DATA_PORTS, TRANSPORT_PORTS);
+            slave = new EsEmbeddedServer(CLUSTER_NAME, ES_DATA_PATH, DATA_PORTS_SLAVE, TRANSPORT_PORTS_SLAVE, USE_SLAVE);
             slave.start();
         }
     }

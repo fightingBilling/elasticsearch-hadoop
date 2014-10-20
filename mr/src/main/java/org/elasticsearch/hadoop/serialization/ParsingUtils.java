@@ -23,11 +23,14 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-import org.elasticsearch.hadoop.EsHadoopIllegalArgumentException;
 import org.elasticsearch.hadoop.serialization.Parser.Token;
+import org.elasticsearch.hadoop.serialization.json.JacksonJsonGenerator;
+import org.elasticsearch.hadoop.util.FastByteArrayOutputStream;
 import org.elasticsearch.hadoop.util.StringUtils;
 
 public abstract class ParsingUtils {
+
+    public static final String NOT_FOUND = "(not found)";
 
     /**
      * Seeks the field with the given name in the stream and positions (and returns) the parser to the next available token (value or not).
@@ -139,7 +142,7 @@ public abstract class ParsingUtils {
 
         List<String> matches = new ArrayList<String>();
         for (Matcher matcher : matchers) {
-            matches.add(matcher.matched ? matcher.value.toString() : null);
+            matches.add(matcher.matched ? (matcher.value != null ? matcher.value.toString() : StringUtils.EMPTY) : NOT_FOUND);
         }
 
         return matches;
@@ -191,8 +194,7 @@ public abstract class ParsingUtils {
                                     value = parser.text();
                                     break;
                                 default:
-                                    throw new EsHadoopIllegalArgumentException(String.format(
-                                            "Incorrect parsing; expected value but found [%s]", parser.currentToken()));
+                                    value = readValueAsString(parser);
                                 }
                             }
                             matcher.value = value;
@@ -217,5 +219,84 @@ public abstract class ParsingUtils {
             }
             // ignore other tokens
         }
+    }
+
+    private static String readValueAsString(Parser parser) {
+        FastByteArrayOutputStream out = new FastByteArrayOutputStream(256);
+        JacksonJsonGenerator generator = new JacksonJsonGenerator(out);
+        traverse(parser, generator);
+        generator.close();
+        return out.toString();
+    }
+
+    private static void traverse(Parser parser, Generator generator) {
+        Token t = parser.currentToken();
+        switch (t) {
+        case START_OBJECT:
+            traverseMap(parser, generator);
+            break;
+        case START_ARRAY:
+            traverseArray(parser, generator);
+            break;
+        case FIELD_NAME:
+            generator.writeFieldName(parser.currentName());
+            parser.nextToken();
+            traverse(parser, generator);
+            break;
+        case VALUE_STRING:
+            generator.writeString(parser.text());
+            parser.nextToken();
+            break;
+        case VALUE_BOOLEAN:
+            generator.writeBoolean(parser.booleanValue());
+            parser.nextToken();
+            break;
+        case VALUE_NULL:
+            generator.writeNull();
+            parser.nextToken();
+            break;
+        case VALUE_NUMBER:
+            switch (parser.numberType()) {
+            case INT:
+                generator.writeNumber(parser.intValue());
+                break;
+            case LONG:
+                generator.writeNumber(parser.longValue());
+                break;
+            case DOUBLE:
+                generator.writeNumber(parser.doubleValue());
+                break;
+            case FLOAT:
+                generator.writeNumber(parser.floatValue());
+                break;
+            }
+            parser.nextToken();
+            break;
+        }
+
+    }
+
+    private static void traverseMap(Parser parser, Generator generator) {
+        generator.writeBeginObject();
+        parser.nextToken();
+
+        for (; parser.currentToken() != Token.END_OBJECT;) {
+            traverse(parser, generator);
+        }
+
+        generator.writeEndObject();
+        parser.nextToken();
+    }
+
+    private static void traverseArray(Parser parser, Generator generator) {
+        generator.writeBeginArray();
+        parser.nextToken();
+
+        for (; parser.currentToken() != Token.END_ARRAY;) {
+            traverse(parser, generator);
+        }
+
+        generator.writeEndArray();
+        parser.nextToken();
     }
 }

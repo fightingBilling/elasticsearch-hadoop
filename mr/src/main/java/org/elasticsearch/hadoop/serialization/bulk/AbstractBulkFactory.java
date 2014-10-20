@@ -23,14 +23,20 @@ import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.elasticsearch.hadoop.EsHadoopIllegalArgumentException;
 import org.elasticsearch.hadoop.cfg.Settings;
 import org.elasticsearch.hadoop.rest.Resource;
 import org.elasticsearch.hadoop.serialization.builder.ValueWriter;
-import org.elasticsearch.hadoop.serialization.bulk.TemplatedBulk.FieldWriter;
 import org.elasticsearch.hadoop.serialization.field.ConstantFieldExtractor;
+import org.elasticsearch.hadoop.serialization.field.FieldExplainer;
 import org.elasticsearch.hadoop.serialization.field.FieldExtractor;
 import org.elasticsearch.hadoop.serialization.field.IndexExtractor;
 import org.elasticsearch.hadoop.serialization.field.JsonFieldExtractors;
+import org.elasticsearch.hadoop.serialization.field.WithoutQuotes;
+import org.elasticsearch.hadoop.serialization.json.JacksonJsonGenerator;
+import org.elasticsearch.hadoop.util.BytesArray;
+import org.elasticsearch.hadoop.util.BytesArrayPool;
+import org.elasticsearch.hadoop.util.FastByteArrayOutputStream;
 import org.elasticsearch.hadoop.util.ObjectUtils;
 import org.elasticsearch.hadoop.util.StringUtils;
 
@@ -43,11 +49,84 @@ abstract class AbstractBulkFactory implements BulkFactory {
     private JsonFieldExtractors jsonExtractors;
 
     protected Settings settings;
-    private ValueWriter<?> valueWriter;
+    private ValueWriter valueWriter;
     // used when specifying an index pattern
     private IndexExtractor indexExtractor;
     private FieldExtractor idExtractor, parentExtractor, routingExtractor, versionExtractor, ttlExtractor,
             timestampExtractor, paramsExtractor;
+
+    static final BytesArray QUOTE = new BytesArray("\"");
+
+    class FieldWriter {
+        final FieldExtractor extractor;
+        final boolean addQuotesIfNecessary;
+        final BytesArrayPool pool = new BytesArrayPool();
+
+        FieldWriter(FieldExtractor extractor) {
+            this.extractor = extractor;
+            addQuotesIfNecessary = (extractor instanceof WithoutQuotes);
+        }
+
+        BytesArrayPool write(Object object) {
+            pool.reset();
+
+            Object value = extractor.field(object);
+            if (value == FieldExtractor.NOT_FOUND) {
+                String obj = (extractor instanceof FieldExplainer ? ((FieldExplainer) extractor).toString(object) : object.toString());
+                throw new EsHadoopIllegalArgumentException(String.format("[%s] cannot extract value from entity [%s] | instance [%s]", extractor, obj.getClass(), obj));
+            }
+
+            if (value instanceof List) {
+                List list = (List) value;
+                for (int i = 0; i < list.size() - 1; i++) {
+                    doWrite(list.get(i), false);
+                }
+                //
+                doWrite(list.get(list.size() - 1), true);
+            }
+            // weird if/else to save one collection/iterator instance
+            else {
+                doWrite(value, true);
+            }
+
+            return pool;
+        }
+
+        void doWrite(Object value, boolean lookForQuotes) {
+            // common-case - constants
+            if (value instanceof String || jsonInput || value instanceof Number) {
+                String val = value.toString();
+                if (lookForQuotes && addQuotesIfNecessary) {
+                    if (val.startsWith("[") || val.startsWith("{")) {
+                        pool.get().bytes(val);
+                    }
+                    else {
+                        pool.get().bytes(QUOTE);
+                        pool.get().bytes(val);
+                        pool.get().bytes(QUOTE);
+                    }
+                }
+                else {
+                    pool.get().bytes(val);
+                }
+            }
+            else {
+                BytesArray ba = pool.get();
+                JacksonJsonGenerator generator = new JacksonJsonGenerator(new FastByteArrayOutputStream(ba));
+                valueWriter.write(value, generator);
+                generator.flush();
+                generator.close();
+
+                // jackson likely will add leading/trailing "" which are added down the pipeline so remove them
+                // however that's not mandatory in case the source is a number (instead of a string)
+                if ((lookForQuotes && !addQuotesIfNecessary) && ba.bytes()[ba.offset()] == '"') {
+                    ba.size(Math.max(0, ba.length() - 2));
+                    ba.offset(1);
+                }
+            }
+        }
+    }
+
 
     AbstractBulkFactory(Settings settings) {
         this.settings = settings;
@@ -210,31 +289,38 @@ abstract class AbstractBulkFactory implements BulkFactory {
         }
 
         List<Object> compacted = new ArrayList<Object>();
-        StringBuilder accumulator = new StringBuilder();
+        StringBuilder stringAccumulator = new StringBuilder();
         String lastString = null;
+        boolean hasSeenIndexExtractor = false;
         for (Object object : list) {
             if (object instanceof FieldExtractor) {
-                if (accumulator.length() > 0) {
-                    compacted.add(accumulator.toString().getBytes(StringUtils.UTF_8));
-                    accumulator.setLength(0);
+                hasSeenIndexExtractor = object instanceof IndexExtractor;
+                if (stringAccumulator.length() > 0) {
+                    compacted.add(stringAccumulator.toString().getBytes(StringUtils.UTF_8));
+                    stringAccumulator.setLength(0);
                     lastString = null;
                 }
-                compacted.add(new FieldWriter((FieldExtractor) object));
+                compacted.add(createFieldWriter((FieldExtractor) object));
             }
             else {
                 String str = object.toString();
-                if ("\"".equals(lastString) && str.startsWith("\"")) {
-                    accumulator.append(",");
+                if (("\"".equals(lastString) || (lastString == null && hasSeenIndexExtractor)) && str.startsWith("\"")) {
+                    stringAccumulator.append(",");
                 }
+                hasSeenIndexExtractor = false;
                 lastString = str;
-                accumulator.append(str);
+                stringAccumulator.append(str);
             }
         }
 
-        if (accumulator.length() > 0) {
-            compacted.add(accumulator.toString().getBytes(StringUtils.UTF_8));
+        if (stringAccumulator.length() > 0) {
+            compacted.add(stringAccumulator.toString().getBytes(StringUtils.UTF_8));
         }
         return compacted;
+    }
+
+    protected Object createFieldWriter(FieldExtractor extractor) {
+        return new FieldWriter(extractor);
     }
 
     protected void writeBeforeObject(List<Object> pieces) {

@@ -56,7 +56,7 @@ This approach can be used for local and remote/Hadoop flows - simply use the app
 
 [float]
 ==== Per-`Tap` configuration
-If a `flow` contains multiple `{es}` taps, the global approach does not work since the settings will clash with each other.  For these scenario, `{eh}` allows using per-`Tap` configuration:
+If a `flow` contains multiple {es} taps, the global approach does not work since the settings will clash with each other.  For these scenario, {eh} allows using per-`Tap` configuration:
 
 [source,java]
 ----
@@ -102,10 +102,18 @@ new HadoopFlowConnector().connect(in, out, new Pipe("write-to-Es")).complete();
 <1> {eh} resource (index and type)
 <2> Cascading tuple declaration
 
+For cases where the id (or other metadata fields like +ttl+ or +timestamp+) of the document needs to be specified, one can do so by setting the appropriate <<cfg-mapping, mapping>> namely +es.mapping.id+. Following the previous example, to indicate to {es} to use the field +id+ as the document id, update the +Tap+ configuration:
+
+[source,java]
+----
+Properties myTapCfg = new Properties();
+myTapCfg.set("es.mapping.id", "id");
+----
+
 [float]
 ==== Writing existing JSON to {es}
 
-When the job output data is already in JSON, {eh} allows direct indexing _without_ applying any transformation; the data is taken as is and sent directly to {es}. In such cases, one needs to indicate the json input by setting
+When the job input data is already in JSON, {eh} allows direct indexing _without_ applying any transformation; the data is taken as is and sent directly to {es}. In such cases, one needs to indicate the json input by setting
 the `es.input.json` parameter. As such, in this case {eh} expects to receive a tuple with a single field (representing the JSON document); the library will recognize `Text` or `BytesWritable` types otherwise it just
 calls `toString` to get a hold of the JSON content.
 

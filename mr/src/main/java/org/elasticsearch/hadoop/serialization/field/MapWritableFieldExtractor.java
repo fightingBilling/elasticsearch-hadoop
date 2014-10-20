@@ -18,30 +18,39 @@
  */
 package org.elasticsearch.hadoop.serialization.field;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.apache.hadoop.io.Text;
 import org.elasticsearch.hadoop.cfg.Settings;
 
-public class MapWritableFieldExtractor extends ConstantFieldExtractor {
+public class MapWritableFieldExtractor extends ConstantFieldExtractor implements FieldExplainer {
 
     private Text fieldName;
 
     @SuppressWarnings("rawtypes")
     @Override
-    protected String extractField(Object target) {
+    protected Object extractField(Object target) {
         if (target instanceof Map) {
             Map map = (Map) target;
-            Object w = map.get(fieldName);
-            // since keys are likely primitives, just do a toString
-            return (w != null ? w.toString() : null);
+            if (map.containsKey(fieldName)) {
+                return map.get(fieldName);
+            }
         }
-        return null;
+        return NOT_FOUND;
     }
 
     @Override
-    public void setSettings(Settings settings) {
-        super.setSettings(settings);
-        fieldName = new Text(getFieldName());
+    protected void processField(Settings settings, String fieldName) {
+        this.fieldName = new Text(fieldName);
+    }
+
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+    @Override
+    public String toString(Object field) {
+        if (field instanceof Map) {
+            return new LinkedHashMap((Map) field).toString();
+        }
+        return field.toString();
     }
 }

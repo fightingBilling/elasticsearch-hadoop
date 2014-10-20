@@ -47,7 +47,7 @@ With {eh}, {mr} jobs can write data to {es} making it searchable through {ref}/g
 
 TIP: Both Hadoop 1.x and 2.x are supported by the same binary
 
-`EsOutputFormat` expects a `Map<Writable, Writable>` representing a _document_ value that is converted interally into a JSON document and indexed in {es}.
+`EsOutputFormat` expects a `Map<Writable, Writable>` representing a _document_ value that is converted internally into a JSON document and indexed in {es}.
 Hadoop `OutputFormat` requires implementations to expect a key and a value however, since for {es} only the document (that is the value) is necessary, `EsOutputFormat`
 ignores the key.
 
@@ -90,11 +90,22 @@ public class MyMapper extends MapReduceBase implements Mapper {
  }}
 ----
 
+For cases where the id (or other metadata fields like +ttl+ or +timestamp+) of the document needs to be specified, one can do so by setting the appropriate <<cfg-mapping, mapping>> namely +es.mapping.id+. Thus assuming the documents contain a field called +radioId+ which is unique and is suitable for an identifier, one can update the job configuration as follows:
+
+[source,java]
+----
+JobConf conf = new JobConf();
+conf.set("es.mapping.id", "radioId");
+----
+
+At runtime, {eh} will extract the value from each document and use it accordingly during the bulk call.
+
+
 [float]
 [[writing-json-old-api]]
 ==== Writing existing JSON to {es}
 
-For cases where the job output data is already in JSON, {eh} allows direct indexing _without_ applying any transformation; the data is taken as is and sent directly to {es}. In such cases, one needs to indicate the json input by setting
+For cases where the job input data is already in JSON, {eh} allows direct indexing _without_ applying any transformation; the data is taken as is and sent directly to {es}. In such cases, one needs to indicate the json input by setting
 the `es.input.json` parameter. As such, in this case {eh} expects either a `Text` or `BytesWritable` (preferred as it requires no `String` conversion) object as output; if these types are not used, the library will simply fall back to the `toString` representation of the target object.
 
 .`Writable` to use for JSON representation
@@ -190,6 +201,14 @@ public class SomeMapper extends Mapper {
    ...
    context.write(NullWritable.get(), doc);
  }}
+----
+
+Specifying the id or other document <<cfg-mapping, metadata>> is just as easy:
+
+[source,java]
+----
+Configuration conf = new Configuration();
+conf.set("es.mapping.id", "radioId");
 ----
 
 [float]
@@ -299,7 +318,7 @@ As expected, the `mapreduce` API version is quite similar:
 ----
 Configuration conf = new Configuration();
 conf.set("es.resource", "radio/artists/");            <1>
-conf.set("es.query", "?q=me*");            		      <2>
+conf.set("es.query", "?q=me*");                       <2>
 Job job = new Job(conf);
 job.setInputFormat(EsInputFormat.class);
 job.setMapOutputKeyClass(Text.class);

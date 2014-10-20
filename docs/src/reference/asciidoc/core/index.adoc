@@ -12,6 +12,10 @@ include::hive.adoc[]
 
 include::pig.adoc[]
 
+include::spark.adoc[]
+
+include::storm.adoc[]
+
 include::mapping.adoc[]
 
 include::metrics.adoc[]

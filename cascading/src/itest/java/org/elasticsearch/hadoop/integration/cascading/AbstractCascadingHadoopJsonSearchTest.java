@@ -58,9 +58,11 @@ public class AbstractCascadingHadoopJsonSearchTest {
 
     private final String indexPrefix = "json-";
     private final String query;
+    private boolean readMetadata;
 
-    public AbstractCascadingHadoopJsonSearchTest(String query) {
+    public AbstractCascadingHadoopJsonSearchTest(String query, boolean readMetadata) {
         this.query = query;
+        this.readMetadata = readMetadata;
     }
 
     private OutputStream OUT = Stream.NULL.stream();
@@ -117,7 +119,7 @@ public class AbstractCascadingHadoopJsonSearchTest {
     @Test
     public void testDynamicPatternWithFormat() throws Exception {
         Assert.assertTrue(RestUtils.exists(indexPrefix + "cascading-hadoop/pattern-format-2001-10-06"));
-        Assert.assertTrue(RestUtils.exists(indexPrefix + "cascading-hadoop/pattern-format-2501-10-06"));
+        Assert.assertTrue(RestUtils.exists(indexPrefix + "cascading-hadoop/pattern-format-2198-10-06"));
         Assert.assertTrue(RestUtils.exists(indexPrefix + "cascading-hadoop/pattern-format-2890-10-06"));
     }
 
@@ -128,6 +130,7 @@ public class AbstractCascadingHadoopJsonSearchTest {
     private Properties cfg() {
         Properties props = HdpBootstrap.asProperties(QueryTestParams.provisionQueries(CascadingHadoopSuite.configuration));
         props.put(ConfigurationOptions.ES_QUERY, query);
+        props.put(ConfigurationOptions.ES_READ_METADATA, readMetadata);
         return props;
     }
 }

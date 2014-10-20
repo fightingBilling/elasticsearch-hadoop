@@ -1,9 +1,9 @@
 # Hadoop HDFS Snapshot/Restore plugin
 
-`elasticsearch-repository-hdfs` plugin allows Elasticsearch 1.0 to use `hdfs` file-system as a repository for [snapshot/restore](http://www.elasticsearch.org/guide/en/elasticsearch/reference/master/modules-snapshots.html). See [this blog](http://www.elasticsearch.org/blog/introducing-snapshot-restore/) entry for a quick introduction to snapshot/restore.
+`elasticsearch-repository-hdfs` plugin allows Elasticsearch 1.4 to use `hdfs` file-system as a repository for [snapshot/restore](http://www.elasticsearch.org/guide/en/elasticsearch/reference/master/modules-snapshots.html). See [this blog](http://www.elasticsearch.org/blog/introducing-snapshot-restore/) entry for a quick introduction to snapshot/restore.
 
 ## Requirements
-- Elasticsearch (version *1.0* or higher)
+- Elasticsearch (version *1.4* or higher). For Elasticsearch *1.0*-*1.3* use the 2.0.x version of the plugin.
 - HDFS accessible file-system (from the Elasticsearch classpath)
 
 ## Flavors
@@ -21,12 +21,25 @@ It depends on whether you have Hadoop installed on your nodes or not. If you do,
 If you do not have Hadoop installed, then select either the default version (for Hadoop stable/1.x) or, if you are using Hadoop 2, the `hadoop2` version.
 
 ## Installation
+
+### Node restart
+_After_ installing the plugin, be sure to restart the node. This applies to _all_ nodes on which the plugins have been installed.
+
+### Stable version
 As with any other plugin, simply run:
-`bin/plugin -i elasticsearch/elasticsearch-repository-hdfs/2.0.0`
+`bin/plugin -i elasticsearch/elasticsearch-repository-hdfs/2.0.2`
 
 When looking for `light` or `hadoop2` artifacts use:
-`bin/plugin -i elasticsearch/elasticsearch-repository-hdfs/2.0.0-<classifier>`
+`bin/plugin -i elasticsearch/elasticsearch-repository-hdfs/2.0.2-<classifier>`
 
+### Beta version
+For the beta version, simply run:
+`bin/plugin -i elasticsearch/elasticsearch-repository-hdfs/2.1.0.Beta2`
+
+When looking for `light` or `hadoop2` artifacts use:
+`bin/plugin -i elasticsearch/elasticsearch-repository-hdfs/2.1.0.Beta2-<classifier>`
+
+### Development snashot
 To install the latest snapshot, please install the plugin manually using:
 `bin/plugin -u <url-path-to-plugin.zip> -i elasticsearch-repository-hdfs-2.1.0-BUILD-SNAPSHOT`
 

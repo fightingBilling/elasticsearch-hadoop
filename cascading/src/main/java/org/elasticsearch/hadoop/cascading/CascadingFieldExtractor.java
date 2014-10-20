@@ -18,27 +18,30 @@
  */
 package org.elasticsearch.hadoop.cascading;
 
-import org.elasticsearch.hadoop.cfg.Settings;
 import org.elasticsearch.hadoop.serialization.field.ConstantFieldExtractor;
+import org.elasticsearch.hadoop.serialization.field.FieldExplainer;
 
 import cascading.scheme.SinkCall;
 
-public class CascadingFieldExtractor extends ConstantFieldExtractor {
+public class CascadingFieldExtractor extends ConstantFieldExtractor implements FieldExplainer {
 
     @SuppressWarnings({ "rawtypes" })
     @Override
-    protected String extractField(Object target) {
+    protected Object extractField(Object target) {
         if (target instanceof SinkCall) {
             Object object = ((SinkCall) target).getOutgoingEntry().getObject(getFieldName());
             if (object != null) {
-                return object.toString();
+                return object;
             }
         }
-        return null;
+        return NOT_FOUND;
     }
 
     @Override
-    public void setSettings(Settings settings) {
-        super.setSettings(settings);
+    public String toString(Object field) {
+        if (field instanceof SinkCall) {
+            return ((SinkCall) field).getOutgoingEntry().toString();
+        }
+        return field.toString();
     }
 }

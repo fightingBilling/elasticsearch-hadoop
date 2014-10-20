@@ -17,6 +17,8 @@ allprojects {
 	  mavenCentral()
 	  // cascading
 	  maven { url "http://conjars.org/repo" }
+	  // storm dependencies
+	  maven { url "http://clojars.org/repo" }
 	  maven { url 'http://repo.spring.io/plugins-release' }
 	  
   	  // Hive depends on JDO ec2 missing from Maven Central
@@ -92,6 +94,10 @@ switch (hadoopDistro) {
               "org.apache.hadoop:hadoop-tools:$hadoopVersion"] 
 }
 
+def boolean isYarn() {
+	return hadoopDistro == "hadoopYarn"
+}
+
 allprojects {
 	dependencies {
 		testCompile "junit:junit:$junitVersion"
@@ -103,18 +109,16 @@ if (rootProject == project) {
 	println hadoopMsg
 }
 
-configurations.all {
-  resolutionStrategy {
-	forcedModules = ['commons-httpclient:commons-httpclient:3.0.1']
-  }
-}
-
 def File gitBranch() {
 	// parse the git files to find out the revision
 	File gitHead = 	file("$rootDir/.git/HEAD")
 
 	if (gitHead.exists()) {
-		return file("$rootDir/.git/" + gitHead.text.trim().replace('ref: ',''))
+		String content = gitHead.text.trim()
+		if (content.startsWith("ref:")) {
+			return file("$rootDir/.git/" + content.replace('ref: ',''))
+		}
+		return gitHead
 	}
 	return null
 }
@@ -130,6 +134,8 @@ def String gitHash() {
 }
 
 def revHash = gitHash()
+
+def nullLog4jConfig = file("$rootDir/mr/src/test/resources/log4jnull.properties").toURI().toURL().toString()
 
 allprojects { project ->
 
@@ -150,19 +156,20 @@ allprojects { project ->
 	sourceSets.test.resources.srcDirs = ["src/test/resources", "src/test/java"]
 
 	test {
+		reports.html.enabled = true		
+
 		jacoco {
-			//def jacocoEnabled = project.hasProperty("jacocoCoverage")
-			enabled = project.hasProperty("jacocoCoverage")
-		   
-			if (enabled)
-				println "Enabling Jacoco Coverage"
+			enabled = project.hasProperty("enableJacoco")
+			destinationFile = file("${rootProject.buildDir}/jacoco/jacocoTest.exec")
+			
+			if (enabled) {
+				System.setProperty("log4j.configuration", "$nullLog4jConfig")
+			}
 		}
 	}
 
 	sourceSets {
-		integrationTest {
-			java.srcDir file('src/itest/java')
-			resources.srcDir file('src/itest/resources')
+		itest {
 		}
     }
 
@@ -171,15 +178,44 @@ allprojects { project ->
 		testCompile "org.elasticsearch:elasticsearch:$esVersion"
 		testRuntime "org.slf4j:slf4j-log4j12:1.7.6"
 		testRuntime "log4j:log4j:$log4jVersion"
+		testRuntime "org.codehaus.groovy:groovy-all:$groovyVersion"
 
 		
-		integrationTestCompile sourceSets.main.output
-		integrationTestCompile configurations.testCompile
-		integrationTestCompile configurations.provided
-		integrationTestCompile sourceSets.test.output
-		integrationTestRuntime configurations.testRuntime
+		itestCompile sourceSets.main.output
+		itestCompile configurations.testCompile
+		itestCompile configurations.provided
+		itestCompile sourceSets.test.output
+		itestRuntime configurations.testRuntime
 	}
 
+	// deal with the messy conflicts out there
+	configurations.all {
+	  resolutionStrategy {
+		
+		// force the use of commons-http from Hadoop 1.x
+		// to avoid SLF4J warnings, force only one version
+		force 'commons-httpclient:commons-httpclient:3.0.1' //, 'org.slf4j:slf4j-log4j12:1.7.6', 'org.slf4j:slf4j-api:1.7.6'
+		
+		// for slf4j use each dependency since there are so many variants
+		eachDependency { details ->
+			if (details.requested.name.contains("slf4j-")) {
+				details.useVersion "1.7.6"
+			}
+		}
+	  }
+	}
+
+	// adding the M/R project creates duplicates in the Eclipse CP so here we filter them out
+	// the lib entries with sources seem to be placed first so they 'win' over those w/o sources
+	eclipse.classpath.file {
+		whenMerged { cp ->
+			cp.entries.unique { a, b ->
+				return a.path.compareTo(b.path)
+			}
+		}
+	}
+
+	
 	jar {
 		manifest.attributes["Created-By"] = "${System.getProperty("java.version")} (${System.getProperty("java.specification.vendor")})"
 		manifest.attributes['Implementation-Title'] = project.name
@@ -229,6 +265,8 @@ allprojects { project ->
 			'Elasticsearch Cascading' : ['org.elasticsearch.hadoop.cascading*'],
 			'Elasticsearch Hive' : ['org.elasticsearch.hadoop.hive*'],
 			'Elasticsearch Pig' : ['org.elasticsearch.hadoop.pig*'],
+			'Elasticsearch Spark' : ['org.elasticsearch.spark*'],
+			'Elasticsearch Storm' : ['org.elasticsearch.storm*'],
 			]
 
 			links = [
@@ -238,7 +276,9 @@ allprojects { project ->
 				//"http://hbase.apache.org/apidocs/",
 				"http://pig.apache.org/docs/r0.12.1/api/",
 				"http://hive.apache.org/javadocs/r0.12.0/api/",
-				"http://docs.cascading.org/cascading/2.1/javadoc/"
+				"http://docs.cascading.org/cascading/2.5/javadoc/",
+				"http://spark.apache.org/docs/latest/api/java/",
+				"http://storm.incubator.apache.org/apidocs/"
 			]
 
 			excludes = [
@@ -338,7 +378,8 @@ def nestMRProject(target) {
 		provided(project(":elasticsearch-hadoop-mr"))
 		provided(project(path: ":elasticsearch-hadoop-mr", configuration:"provided"))
 		
-		integrationTestCompile project(":elasticsearch-hadoop-mr").sourceSets.integrationTest.runtimeClasspath
+		testCompile project(":elasticsearch-hadoop-mr").sourceSets.test.runtimeClasspath
+		itestCompile project(":elasticsearch-hadoop-mr").sourceSets.itest.runtimeClasspath
 	}
 
 	target.jar {
@@ -378,14 +419,16 @@ project(":elasticsearch-hadoop-pig") {
 	description = "Elasticsearch Hadoop Pig"
 	nestMRProject(project)
 	
+	ext.pigClassifier = isYarn() ? "h2" : ""
+	
 	dependencies {
-		provided("org.apache.pig:pig:$pigVersion")
+		provided("org.apache.pig:pig:$pigVersion:$pigClassifier")
 		optional("joda-time:joda-time:$jodaVersion")
 		
 		testRuntime "com.google.guava:guava:11.0"
 		testRuntime "jline:jline:0.9.94"
 
-		integrationTestRuntime "dk.brics.automaton:automaton:1.11-8"
+		itestRuntime "dk.brics.automaton:automaton:1.11-8"
 	}
 }
 
@@ -396,10 +439,57 @@ project(":elasticsearch-hadoop-hive") {
 	dependencies {
 		provided("org.apache.hive:hive-service:$hiveVersion")
 
-		integrationTestRuntime "org.apache.hive:hive-jdbc:$hiveVersion"
+		itestRuntime "org.apache.hive:hive-jdbc:$hiveVersion"
 	}
 }
 
+project(":elasticsearch-spark") {
+	archivesBaseName += "_$scalaMajorVersion"
+	
+	if (java8) {
+		println "Elasticsearch Spark project cannot be compiled under JDK 8 - please change to JDK 6 or 7"
+		tasks.all { enabled = false }
+	}
+	else {
+		apply plugin: 'scala'
+	}
+	
+	description = "Elasticsearch Spark"
+
+	nestMRProject(project)
+	
+	dependencies {
+		provided("org.apache.spark:spark-core_$scalaMajorVersion:$sparkVersion") {
+			exclude group: 'javax.servlet'
+		}
+		
+		optional("org.apache.spark:spark-sql_$scalaMajorVersion:$sparkVersion")
+		provided("javax.servlet:javax.servlet-api:3.0.1")
+		compile("org.scala-lang:scala-library:$scalaVersion")
+
+		//testCompile "org.scalatest:scalatest_$scalaMajorVersion:2.2.0"
+		//itestRuntime "com.esotericsoftware.kryo:kryo:2.16"
+		itestCompile "org.apache.spark:spark-sql_$scalaMajorVersion:$sparkVersion"
+	}
+	
+	if (!java8) {
+		scaladoc {
+			title = "${rootProject.description} ${version} API"
+		}
+	}
+}
+
+project(":elasticsearch-storm") {
+	description = "Elasticsearch Storm"
+	nestMRProject(project)
+	
+	dependencies {
+		provided("org.apache.storm:storm-core:$stormVersion")
+		
+		//testRuntime "com.esotericsoftware.kryo:kryo:2.21"
+		itestRuntime "com.twitter:carbonite:1.4.0"
+	}
+}
 
 configure(rootProject) {
 	def eshModules = subprojects - project(":elasticsearch-repository-hdfs")
@@ -409,7 +499,7 @@ configure(rootProject) {
 		eshModules.each { subproject ->
 			from subproject.sourceSets.test.output
 			from subproject.sourceSets.main.output
-			from subproject.sourceSets.integrationTest.output
+			from subproject.sourceSets.itest.output
 		}
 		classifier = 'testing'
 		
@@ -418,10 +508,9 @@ configure(rootProject) {
 }
 
 allprojects { project ->
-
 	task integrationTest(type: Test, dependsOn: rootProject.hadoopTestingJar) {
-		testClassesDir = sourceSets.integrationTest.output.classesDir
-		classpath = sourceSets.integrationTest.runtimeClasspath
+		testClassesDir = sourceSets.itest.output.classesDir
+		classpath = sourceSets.itest.runtimeClasspath
 		excludes = ["**/Abstract*.class"]
 		
 		ignoreFailures = true
@@ -432,13 +521,27 @@ allprojects { project ->
 			jvmArgs '-XX:MaxPermSize=368m'
 
 	    testLogging {
-			events "started" //, "standardOut", "standardError"
+			displayGranularity 0
+			events "started", "failed" //, "standardOut", "standardError"
+			exceptionFormat "full"
+			showCauses true
+			showExceptions true
+			showStackTraces true
+			stackTraceFilters "groovy"
 			minGranularity 2
 			maxGranularity 2
 		}
 		
+		reports.html.enabled = false
+		
 		jacoco {
-			enabled = project.hasProperty("jacocoCoverage")
+			enabled = project.hasProperty("enableJacoco")
+			append = true
+			destinationFile = file("${rootProject.buildDir}/jacoco/jacocoTest.exec")
+			
+			if (enabled) {
+				System.setProperty("log4j.configuration", "$nullLog4jConfig")
+			}
 		}
 	}
 }
@@ -533,6 +636,27 @@ configure(rootProject) {
 		dependsOn(distZip)
 	}
 
+	jacocoTestReport {
+		subprojects.each {
+			sourceSets it.sourceSets.main
+		}
+		reports {
+			xml.enabled false
+			csv.enabled false
+			html {
+				enabled = true
+				destination "${buildDir}/jacoco/html"
+			}
+		}
+	}
+	
+	task testReport(type: TestReport) {
+		destinationDir = file("$buildDir/reports/allTests")
+		// Include the results from the `test` task in all subprojects
+		reportOn subprojects*.test
+		reportOn subprojects*.integrationTest
+	}
+	
 	task wrapper(type: Wrapper) {
 		description = 'Generates gradlew[.bat] scripts'
 		gradleVersion = '1.12'
@@ -572,15 +696,7 @@ allprojects { project ->
 	}
 
 	jacoco {
-		toolVersion = "0.6.3.201306030806"
-	}
-
-	jacocoTestReport {
-		reports {
-			xml.enabled true
-			csv.enabled true
-			html.enabled false
-		}
+		toolVersion = "0.7.1.201405082137"
 	}
 
 	if (java8) {

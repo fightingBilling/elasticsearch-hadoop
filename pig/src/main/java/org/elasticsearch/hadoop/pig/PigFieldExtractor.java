@@ -18,18 +18,19 @@
  */
 package org.elasticsearch.hadoop.pig;
 
+import org.apache.pig.ResourceSchema;
 import org.apache.pig.ResourceSchema.ResourceFieldSchema;
 import org.apache.pig.backend.executionengine.ExecException;
 import org.apache.pig.data.DataType;
+import org.apache.pig.data.Tuple;
 import org.elasticsearch.hadoop.EsHadoopIllegalStateException;
-import org.elasticsearch.hadoop.cfg.Settings;
 import org.elasticsearch.hadoop.serialization.field.ConstantFieldExtractor;
 import org.elasticsearch.hadoop.util.Assert;
 
 public class PigFieldExtractor extends ConstantFieldExtractor {
 
     @Override
-    protected String extractField(Object target) {
+    protected Object extractField(Object target) {
         if (target instanceof PigTuple) {
             PigTuple pt = (PigTuple) target;
             ResourceFieldSchema[] fields = pt.getSchema().getSchema().getFields();
@@ -38,10 +39,20 @@ public class PigFieldExtractor extends ConstantFieldExtractor {
                 ResourceFieldSchema field = fields[i];
                 if (getFieldName().equals(field.getName())) {
                     byte type = field.getType();
-                    Assert.isTrue(DataType.isAtomic(type),
-                            String.format("Unsupported data type [%s] for field [%s]; use only 'primitives'", DataType.findTypeName(type), getFieldName()));
                     try {
-                        return pt.getTuple().get(i).toString();
+                        Object object = pt.getTuple().get(i);
+                        if (DataType.isAtomic(type)) {
+                            return object.toString();
+                        }
+                        else if (type == DataType.TUPLE) {
+                            ResourceSchema rs = new ResourceSchema();
+                            rs.setFields(new ResourceFieldSchema[] { field });
+                            PigTuple rpt = new PigTuple(rs);
+                            rpt.setTuple((Tuple) object);
+                        }
+                        else {
+                            Assert.isTrue(false, String.format("Unsupported data type [%s] for field [%s]; use only 'primitives' or 'tuples'", DataType.findTypeName(type), getFieldName()));
+                        }
                     } catch (ExecException ex) {
                         throw new EsHadoopIllegalStateException(String.format("Cannot retrieve field [%s]", getFieldName()), ex);
                     }
@@ -49,11 +60,6 @@ public class PigFieldExtractor extends ConstantFieldExtractor {
             }
         }
 
-        return null;
-    }
-
-    @Override
-    public void setSettings(Settings settings) {
-        super.setSettings(settings);
+        return NOT_FOUND;
     }
 }

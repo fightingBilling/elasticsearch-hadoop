@@ -49,12 +49,14 @@ public class QueryBuilder {
     private String shard;
     private String node;
     private final boolean IS_ES_10;
+    private final boolean INCLUDE_VERSION;
 
     private String fields;
 
     QueryBuilder(Settings settings) {
         this.resource = new Resource(settings, true);
         IS_ES_10 = SettingsUtils.isEs10(settings);
+        INCLUDE_VERSION = settings.getReadMetadata() && settings.getReadMetadataVersion();
         String query = settings.getQuery();
         if (!StringUtils.hasText(query)) {
             query = MATCH_ALL;
@@ -141,19 +143,25 @@ public class QueryBuilder {
     }
 
     private String assemble() {
-        StringBuilder sb = new StringBuilder(resource.indexAndType());
+        StringBuilder sb = new StringBuilder();
+        sb.append(StringUtils.encodePath(resource.index()));
+        sb.append("/");
+        sb.append(StringUtils.encodePath(resource.type()));
         sb.append("/_search?");
 
         // override infrastructure params
         uriQuery.put("search_type", "scan");
         uriQuery.put("scroll", String.valueOf(time.minutes()));
         uriQuery.put("size", String.valueOf(size));
+        if (INCLUDE_VERSION) {
+            uriQuery.put("version", "");
+        }
 
         // override fields
         if (StringUtils.hasText(fields)) {
             if (IS_ES_10) {
                 uriQuery.put("_source", fields);
-                uriQuery.remove("escapedFields");
+                uriQuery.remove("fields");
             }
             else {
                 uriQuery.put("fields", fields);
@@ -184,8 +192,10 @@ public class QueryBuilder {
         for (Iterator<Entry<String, String>> it = uriQuery.entrySet().iterator(); it.hasNext();) {
             Entry<String, String> entry = it.next();
             sb.append(entry.getKey());
-            sb.append("=");
-            sb.append(entry.getValue());
+            if (StringUtils.hasText(entry.getValue())) {
+                sb.append("=");
+                sb.append(entry.getValue());
+            }
             if (it.hasNext()) {
                 sb.append("&");
             }
@@ -195,7 +205,7 @@ public class QueryBuilder {
     }
 
     public ScrollQuery build(RestRepository client, ScrollReader reader) {
-        String scrollUri = StringUtils.escapeUri(assemble());
+        String scrollUri = assemble();
         return client.scan(scrollUri, bodyQuery, reader);
     }
 
