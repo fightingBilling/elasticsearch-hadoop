@@ -36,6 +36,7 @@ import org.elasticsearch.hadoop.serialization.FieldType.LONG
 import org.elasticsearch.hadoop.serialization.FieldType.NULL
 import org.elasticsearch.hadoop.serialization.FieldType.SHORT
 import org.elasticsearch.hadoop.serialization.FieldType.STRING
+import org.elasticsearch.hadoop.serialization.FieldType.GEO_POINT
 import org.elasticsearch.hadoop.serialization.dto.mapping.Field
 
 private[sql] object MappingUtils {
@@ -66,6 +67,7 @@ private[sql] object MappingUtils {
       case DOUBLE  => DoubleType
       case STRING  => StringType
       case DATE    => TimestampType
+      case GEO_POINT => StringType // A bit of a hack, get back geo points as strings
       case _       => throw new EsHadoopIllegalStateException("Unknown field type " + field);
     }
 
